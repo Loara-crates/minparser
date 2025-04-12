@@ -20,7 +20,6 @@
 //!
 //! This module provides the [`ParseTool`] trait and some parsing tools which incapsulates some
 //! basic algorithms which you can use to define more sofisticated ones.
-use thiserror::Error;
 use crate::view::{NoMatch, View};
 
 /// The main parsing trait
@@ -217,6 +216,7 @@ impl<'a, F : Clone, FT, ST> ParseTool<'a, F> for OrTool<FT, ST> where FT : Parse
 #[cfg(any(doc, feature = "alloc"))]
 mod allc {
     use super::{Error, ParseTool, TrueParser, View};
+    use thiserror::Error;
     /// Tool that matches repetitions with separator
     ///
     /// Separator data is discarded and not saved

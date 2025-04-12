@@ -16,13 +16,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::view::{View, NoMatch};
-use crate::parser::ParseTool;
 
 #[cfg(any(doc, feature = "alloc"))]
 mod allc{
-    use super::{NoMatch, ParseTool, View};
-    use crate::parser::RepeatTool;
+    use crate::view::{View, NoMatch};
+    use crate::parser::{ParseTool, RepeatTool};
 
     /// Tool that matches any newline character
     #[derive(Clone, Copy, Eq, PartialEq, Debug)]
