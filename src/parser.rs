@@ -340,18 +340,48 @@ mod allc {
 pub use self::allc::*;
 
 /// Tool that matches characters which satisfies the provided predicate.
-///
-/// A predicate is a function that accepts `char` and returns an `Option`: the `None` variand will
-/// be interpreted as a nonmatch, whereas the `Some(d)` variant will be interpreted as a match and the
-/// provided data `d` is stored in the returned [`View`].
 #[derive(Debug, Clone, Copy)]
 pub struct PredicateTool<P>{
     predicate : P,
 }
 
-impl<D, P : Fn(char) -> Option<D>> PredicateTool<P> {
+impl<P : Fn(char) -> bool> PredicateTool<P> {
     /// Create a new [`PredicateTool`] from a predicate.
-    pub const fn new_map(predicate : P) -> Self {
+    pub const fn new(predicate : P) -> Self {
+        Self{
+            predicate,
+        }
+    }
+}
+
+impl<'a, F, P : Fn(char) -> bool> ParseTool<'a, F> for PredicateTool<P>{
+    type Error = ();
+    type Data = char;
+    fn parse(&self, st : View<'a, (), F>) -> Result<View<'a, Self::Data, F>, Self::Error>{
+        let nv = st.pop_char().ok_or(())?;
+        if (self.predicate)(*nv.view_data()) {
+            Ok(nv)
+        }
+        else{
+            Err(())
+        }
+    }
+}
+
+/// Tool that matches characters which satisfies the provided predicate and transforms the matched
+/// character.
+///
+/// A predicate is a function that accepts `char` and returns an `Option`: the `None` variand will
+/// be interpreted as a nonmatch, whereas the `Some(d)` variant will be interpreted as a match and the
+/// provided data `d` is stored in the returned [`View`].
+#[derive(Debug, Clone, Copy)]
+pub struct MapTool<P>{
+    predicate : P,
+}
+
+impl<D, P : Fn(char) -> Option<D>> MapTool<P> {
+    /// Create a new [`MapTool`] from a function.
+    pub const fn new(predicate : P) -> Self {
         Self{
             predicate,
         }
@@ -359,8 +389,8 @@ impl<D, P : Fn(char) -> Option<D>> PredicateTool<P> {
 }
 
 #[cfg(any(doc, feature = "alloc"))]
-impl<'a> PredicateTool<alloc::boxed::Box<dyn Fn(char) -> Option<char> + 'a>> {
-    /// Create a new [`PredicateTool`] from a function returning a `bool`.
+impl<'a> MapTool<alloc::boxed::Box<dyn Fn(char) -> Option<char> + 'a>> {
+    /// Create an identity [`MapTool`] from a function returning a `bool`.
     ///
     /// A `false` result is interpreted as a `None` and a `true` result is converted to
     /// `Some(c)` with `c` is the matched character in the view.
@@ -370,7 +400,7 @@ impl<'a> PredicateTool<alloc::boxed::Box<dyn Fn(char) -> Option<char> + 'a>> {
     }
 }
 
-impl<'a, F, D, P : Fn(char) -> Option<D>> ParseTool<'a, F> for PredicateTool<P>{
+impl<'a, F, D, P : Fn(char) -> Option<D>> ParseTool<'a, F> for MapTool<P>{
     type Error = ();
     type Data = D;
     fn parse(&self, st : View<'a, (), F>) -> Result<View<'a, Self::Data, F>, Self::Error>{
