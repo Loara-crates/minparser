@@ -1,7 +1,7 @@
 /*
  * Minparser Simple parsing functions
  *
- * Copyright (C) 2024 Paolo De Donato
+ * Copyright (C) 2024-2025 Paolo De Donato
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ use core::error::Error;
 use core::write;
 
 /// A placeholder that you can use when you don't want to use the file field in a
-/// [`Position`](crate::pos::Position).
+/// [`Position`].
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub struct NoFile;
 
@@ -95,6 +95,13 @@ impl<F> Position<F>{
             c : self.c,
         }
     }
+    /// Unpacks the position
+    ///
+    /// The first integer is the line number, the second one the column number
+    #[must_use]
+    pub fn unpack(self) -> (u32, u32, F) {
+        (self.r, self.c, self.file)
+    }
 }
 
 impl<F> Position<F> where F : Default{
@@ -110,14 +117,43 @@ impl<F> Position<F> where F : Default{
     }
 }
 
-impl<F> Display for Position<F> where F : Display + 'static {
+impl<F> Display for Position<F> where F : Display {
     fn fmt(&self, fmt : &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if (core::any::TypeId::of::<F>()) == (core::any::TypeId::of::<NoFile>()) {
-            write!(fmt, "Line: {}, column: {}", self.r, self.c)
-        }
-        else {
-            write!(fmt, "File: {}, line: {}, column: {}", self.file(), self.r, self.c)
-        }
+        write!(fmt, "File: {}, line: {}, column: {}", self.file(), self.r, self.c)
+    }
+}
+
+/// A trait for objects with an associated position
+///
+/// You can freely implement this trait for your objects or instead use [`Pos`] wrapper.
+pub trait Posable<F>{
+    /// Get current position
+    fn get_pos(&self) -> &Position<F>;
+
+    /// Get current file location
+    fn file(&self) -> &F {
+        &self.get_pos().file
+    }
+    /// Get line number
+    fn line(&self) -> u32 {
+        self.get_pos().r
+    }
+    /// Get column number
+    fn column(&self) -> u32 {
+        self.get_pos().c
+    }
+}
+
+/// A trait for object with mutable position
+pub trait PosableMut<F> : Posable<F> {
+    /// Get a mutable reference to its position
+    fn get_pos_mut(&mut self) -> &mut Position<F>;
+
+    /// Increase or decrease line and column number by an offset
+    fn progress(&mut self, nrow : i32, ncol : i32) {
+        let pos = self.get_pos_mut();
+        pos.r = pos.r.saturating_add_signed(nrow);
+        pos.c = pos.c.saturating_add_signed(ncol);
     }
 }
 
@@ -147,24 +183,36 @@ impl<T, F> AsMut<T> for Pos<T, F> {
     }
 }
 
-impl<T, F> Display for Pos<T, F> where T : Display, F : Display + 'static {
+impl<T, F> Display for Pos<T, F> where T : Display, F : Display {
     fn fmt(&self, fmt : &mut Formatter<'_>) -> core::fmt::Result {
         write!(fmt, "{}: {}", self.pos, self.el)
     }
 }
 
-impl<T, F> Error for Pos<T, F> where T : Error, F : Display + Debug + 'static {
+impl<T, F> Error for Pos<T, F> where T : Error, F : Display + Debug {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.el.source()
     }
 }
 
+impl<T, F> Posable<F> for Pos<T, F>{
+    fn get_pos(&self) -> &Position<F> {
+        &self.pos
+    }
+}
+
+impl<T, F> PosableMut<F> for Pos<T, F>{
+    fn get_pos_mut(&mut self) -> &mut Position<F> {
+        &mut self.pos
+    }
+}
+
 impl<T, F> Pos<T, F> {
-    /// Creates a new positioned object. See also [`Posable::at`]
+    /// Creates a new positioned object.
     pub const fn new(el : T, pos : Position<F>) -> Self {
         Self{el, pos}
     }
-    /// Creates a new positioned object. See also [`Posable::at_pos`]
+    /// Creates a new positioned object.
     pub const fn new_pos(el : T, file : F, line : u32, column : u32) -> Self {
         Self{
             el,
@@ -174,31 +222,6 @@ impl<T, F> Pos<T, F> {
                 c : column,
             }
         }
-    }
-    /// Get the file identifier
-    pub const fn file(&self) -> &F {
-        &self.pos.file
-    }
-    /// Get the line number
-    pub const fn line(&self) -> u32 {
-        self.pos.r
-    }
-    /// Get the column number
-    pub const fn column(&self) -> u32 {
-        self.pos.c
-    }
-
-    /// Moves the content to a different position
-    pub fn mov<G>(self, pos : Position<G>) -> Pos<T, G> {
-        Pos{el : self.el, pos}
-    }
-    /// Moves the content to a different position
-    pub fn mov_to<U, G>(self, ot : Pos<U, G>) -> Pos<T, G> {
-        self.mov(ot.pos)
-    }
-    ///Gets the position
-    pub const fn pos(&self) -> &Position<F> {
-        &self.pos
     }
     ///Consumes the objects and returns the wrapped element
     pub fn take(self) -> T {
@@ -261,6 +284,10 @@ impl<T, E, F> Pos<Result<T, E>, F> {
             pos : out.pos,
         }
     }
+    /// Build result from output and position
+    pub fn from_output_pos(out : T, pos : Position<F>) -> Self {
+        Self::from_output(Pos::new(out, pos))
+    }
     /// Build result from residual
     #[allow(clippy::missing_panics_doc)]
     pub fn from_residual(out : Pos<Result<core::convert::Infallible, E>, F>) -> Self {
@@ -270,6 +297,17 @@ impl<T, E, F> Pos<Result<T, E>, F> {
                 Ok(_) => panic!("Infallible"),
             },
             pos : out.pos,
+        }
+    }
+    /// Build result from residual and position
+    pub fn from_residual_pos(out : Result<core::convert::Infallible, E>, pos : Position<F>) -> Self {
+        Self::from_residual(Pos::new(out, pos))
+    }
+    /// Build result from error and position
+    pub const fn from_err_pos(out : E, pos : Position<F>) -> Self {
+        Self{
+            el : Err(out),
+            pos,
         }
     }
     ///Branch
@@ -353,27 +391,3 @@ impl<B, C, F> Pos<ControlFlow<B, C>, F> {
         }
     }
 }
-/// This trait allows you to easily create a `Pos<T, F>` object from a `T` object implementing the
-/// `Posable` traits thanks to its methods [`Posable::at`] and [`Posable::at_pos`].
-///
-/// You don't need `T` to implement `Posable` in order to create a `Pos<T>`, this trait is useful
-/// only if ypu prefer to use `t.at(pos)` in place of `Pos::new(t, pos)`.
-pub trait Posable where Self : Sized{
-    /// Creates a new `Pos<Self, F>` object. Calling `t.at(pos)` should be equivalent to call
-    /// `Pos::new(t, pos)`
-    fn at<F>(self, pos : Position<F>) -> Pos<Self, F> {
-        Pos{el : self, pos}
-    }
-    /// Creates a new `Pos<Self, F>` object. Calling `t.at_pos(file, line, column)` should be equivalent 
-    /// to call`Pos::new_pos(t, file, line, column)`
-    fn at_pos<F>(self, file : F, line : u32, column : u32) -> Pos<Self, F> {
-        Self::at(self, Position{file, r : line, c : column})
-    }
-}
-
-impl<T> Posable for Option<T> where T : Posable {}
-impl<T, E> Posable for Result<T, E> where T : Posable, E : Posable {}
-impl Posable for char {}
-#[cfg(feature = "alloc")]
-impl Posable for alloc::string::String {}
-

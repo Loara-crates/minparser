@@ -1,8 +1,8 @@
 [package]
 name = "minparser"
-version = "0.3.1"
+version = "0.4.0"
 description = "Simple parsing functions"
-edition = "2021"
+edition = "2024"
 license = "GPL-3.0-or-later"
 keywords = ["parser", "scanner"]
 categories = ["no-std", "parsing"]
@@ -12,4 +12,6 @@ readme = "README.md"
 
 [features]
 alloc = []
-default = []
+
+[dependencies]
+thiserror = { version = "2.0.12", default-features = false }

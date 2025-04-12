@@ -1,7 +1,7 @@
 /*
  * Minparser Simple parsing functions
  *
- * Copyright (C) 2024 Paolo De Donato
+ * Copyright (C) 2024-2025 Paolo De Donato
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,24 +33,26 @@
 //! A [``Pos<T>``](Pos) is just an object containing a `T` object and a `Position`. Usually you set
 //! `T` to be equal to `char` or to a custom token type.
 //!
-//! A [`DefLine`] is a sort of "iterator" that returns `Pos<Option<char>, FILE>` in
-//! place of `Option<char>`. Moreover, it defines a lot of useful functions for parsing tokens from
-//! a text source.
-//!
-//! This crate assumes a single `\n` character separates lines in a text file. If you need to deal
-//! with `char` iterators that use `\r\n` as a line delimiter (or both `\n` and `\r\n`)
-//! you can use the [`NLIterator`] iterator wrapper to automatically discard any `\r` character so
-//! that `\r\n` becomes just `\n`.
+//! A [``View<'a, D, F>``](View) can be seen as a suffix of a larger string with the position of
+//! its first character and some data of type `D`. The [``match_tool``](View::match_tool) method
+//! can be used to match its prefix with any object implementing the
+//! [``ParseTool``](parser::ParseTool) trait which represents a pattern that can be sstisfied
+//! or not by a string.
 #![warn(missing_docs)]
 #![no_std]
 
-/// A collection of predicates for characters.
-pub mod predicates;
-mod pos;
-mod defline;
-
-#[cfg(feature = "alloc")]
+#[cfg(any(doc, feature = "alloc"))]
 extern crate alloc;
 
+mod pos;
+mod view;
+pub mod parser;
+
+/// A collection of predicates for characters.
+pub mod predicates;
+
+/// Additional useful tools
+pub mod utils;
+
 pub use crate::pos::*;
-pub use crate::defline::*; 
+pub use crate::view::*;
