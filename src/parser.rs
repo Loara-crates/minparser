@@ -215,7 +215,7 @@ impl<'a, F : Clone, FT, ST> ParseTool<'a, F> for OrTool<FT, ST> where FT : Parse
 
 #[cfg(any(doc, feature = "alloc"))]
 mod allc {
-    use super::{Error, ParseTool, TrueParser, View};
+    use super::{ParseTool, TrueParser, View};
     use thiserror::Error;
     /// Tool that matches repetitions with separator
     ///
