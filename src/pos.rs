@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+//! Positions.
 use core::convert::{AsRef, AsMut};
 use core::ops::ControlFlow;
 use core::fmt::{Formatter, Display, Debug};

@@ -22,37 +22,46 @@
 //! This crate is a collection of objects and algorithms shared among different crates that needs
 //! to implement a parser. 
 //!
-//! The [predicates] module contains some useful functions in order to analize ASCII and Unicode characters. 
-//! Some of these functions are just wrappers of functions defined in the standard library.
-//!
-//! A [``Position``] is an object that identifies a (textual) *file* and a position inside it,
-//! represented as a *line index* and a *column index*. The main role of a [Position] object is to
-//! uniquely identify a single character or a (textual) token inside a file in order to allow the
+//! A [``Position``](pos::Position) is an object that identifies a (textual) *file* and a position inside it,
+//! represented as a *line index* and a *column index*. The main role of a `Position` object is to
+//! uniquely identify a single character or a token inside a file in order to allow the
 //! user to easily find it.
 //!
-//! A [``Pos<T>``](Pos) is just an object containing a `T` object and a `Position`. Usually you set
-//! `T` to be equal to `char` or to a custom token type.
+//! A [``View<'a, D, F>``](view::View) can be seen as a suffix of a larger string with the position of
+//! its first character and some data of type `D`. The [``match_tool``](view::View::match_tool) method
+//! can be used to match its prefix with any object implementing the [``ParseTool``](tools::ParseTool) 
+//! trait which represents a pattern that can be satisfied or not by a string.
 //!
-//! A [``View<'a, D, F>``](View) can be seen as a suffix of a larger string with the position of
-//! its first character and some data of type `D`. The [``match_tool``](View::match_tool) method
-//! can be used to match its prefix with any object implementing the
-//! [``ParseTool``](parser::ParseTool) trait which represents a pattern that can be sstisfied
-//! or not by a string.
-#![warn(missing_docs)]
+//! Many useful parsing tools can be found in [`tools`] and [`utils`] modules.
+//!
+//! # Usage example
+//! ```
+//! use minparser::prelude::*;
+//! let view = ViewFile::new_default("My string   value");
+//! let (step, mtc) = view.match_tool_string("My string").unwrap();
+//! assert_eq!(mtc, "My string");
+//! assert_eq!(step.get_view(), "   value"); 
+//! let step = step.match_tool(minparser::utils::WhiteTool).unwrap();   // Use the WhiteTool tool to
+//! assert_eq!(step.get_view(), "value");                               //match a sequence of whitespaces
+//! assert!(step.match_tool('a').is_err()); // A missing match is an error
+//! ```
+#![deny(missing_docs)]
 #![no_std]
+#![cfg_attr(feature = "nightly-features", feature(doc_cfg))]
 
-#[cfg(any(doc, feature = "alloc"))]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
-mod pos;
-mod view;
-pub mod parser;
-
-/// A collection of predicates for characters.
+pub mod pos;
+pub mod view;
+pub mod tools;
+pub mod parsable;
 pub mod predicates;
-
-/// Additional useful tools
 pub mod utils;
 
-pub use crate::pos::*;
-pub use crate::view::*;
+/// Crate prelude
+pub mod prelude {
+    pub use crate::pos::*;
+    pub use crate::view::*;
+    pub use crate::tools::*;
+}

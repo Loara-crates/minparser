@@ -16,7 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//! Simple predicates for characters
+//! Simple predicates for characters.
+//! 
+//! This module contains some useful functions in order to analize ASCII and Unicode characters. 
 //!
 //! A lot of predicates already available for `char` type are not included here, even if they are
 //! quite useful. 

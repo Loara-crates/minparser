@@ -16,24 +16,26 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+//! Other useful parsing tools.
+use crate::view::{View, NoMatch};
+use crate::tools::{ParseTool, RepeatTool, PredicateTool};
 
-#[cfg(any(doc, feature = "alloc"))]
-mod allc{
-    use crate::view::{View, NoMatch};
-    use crate::parser::{ParseTool, RepeatTool};
+/// Tool that matches the newline characters sequences `\n` and `\r\n`.
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub struct NewlineTool;
 
-    /// Tool that matches any newline character
-    #[derive(Clone, Copy, Eq, PartialEq, Debug)]
-    pub struct NewlineTool;
-
-    impl<'a, F : Clone + core::fmt::Debug> ParseTool<'a, F> for NewlineTool {
-        type Error = NoMatch<F>;
-        type Data = ();
-        fn parse(&self, st : View<'a, (), F>) -> Result<View<'a, Self::Data, F>, Self::Error>{
-            st.match_tool(RepeatTool::new_optional('\r')).expect("BUG: unreachable").drop().match_tool('\n').map(View::drop)
-        }
+impl<'a, F : Clone> ParseTool<'a, F> for NewlineTool {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        st.match_tool(RepeatTool::new_optional('\r'))?.match_tool('\n')
     }
 }
 
-#[cfg(any(doc, feature = "alloc"))]
-pub use self::allc::*;
+/// Tool that matches any sequence of Unicode whitespaces.
+#[derive(Debug, Copy, Clone)]
+pub struct WhiteTool;
+
+impl<'a, F : Clone> ParseTool<'a, F> for WhiteTool{
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>> {
+        st.match_tool(RepeatTool::new_unbounded(PredicateTool::new(char::is_whitespace)))
+    }
+}
