@@ -375,6 +375,16 @@ impl<P : Fn(char) -> bool> PredicateTool<P> {
             predicate,
         }
     }
+    /// Creates a tool that matches zero or more occurrences of characters that satisfy the
+    /// specified predicate.
+    pub const fn new_zero_or_more(predicate : P) -> RepeatTool<Self, TrueParser> {
+        RepeatTool::new_unbounded(Self::new(predicate))
+    }
+    /// Creates a tool that matches one or more occurrences of characters that satisfy the
+    /// specified predicate.
+    pub const fn new_one_or_more(predicate : P) -> RepeatToolMin<Self, TrueParser> {
+        RepeatToolMin::new_unbounded(Self::new(predicate), 1)
+    }
 }
 
 impl<'a, F : Clone, P : Fn(char) -> bool> ParseTool<'a, F> for PredicateTool<P>{
