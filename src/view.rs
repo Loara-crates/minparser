@@ -42,23 +42,26 @@ impl<F> AsRef<str> for View<'_, F>{
 
 /// Termination condition for tool repetition
 #[derive(Debug, Clone, Copy)]
-pub enum RepeatTerm<I, S>{
+pub enum RepeatTerm<I, S, F>{
+    /// Termination due to EOF
+    EOF(Position<F>),
     /// Termination due to main tool missing match.
     Item(I),
     /// Termination due to separator tool missing match.
     Separator(S),
 }
 
-impl<F : core::fmt::Display> core::fmt::Display for RepeatTerm<NoMatch<F>, NoMatch<F>>{
+impl<F : core::fmt::Display> core::fmt::Display for RepeatTerm<NoMatch<F>, NoMatch<F>, F>{
     fn fmt(&self, fd : &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::EOF(i) => write!(fd, "{i}: EOF"),
             Self::Item(i) => i.fmt(fd),
             Self::Separator(s) => write!(fd, "Separator error: {s}"),
         }
     }
 }
 
-impl<F : core::fmt::Debug + core::fmt::Display> core::error::Error for RepeatTerm<NoMatch<F>, NoMatch<F>> {}
+impl<F : core::fmt::Debug + core::fmt::Display> core::error::Error for RepeatTerm<NoMatch<F>, NoMatch<F>, F> {}
 
 /// The standard error type for a missing match at specified position.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -72,11 +75,17 @@ impl<F> From<core::convert::Infallible> for NoMatch<F> {
         match i {}
     }
 }
-impl<F> From<RepeatTerm<Self, Self>> for NoMatch<F> {
-    fn from(i : RepeatTerm<Self, Self>) -> Self {
+impl<F> From<RepeatTerm<Self, Self, F>> for NoMatch<F> {
+    fn from(i : RepeatTerm<Self, Self, F>) -> Self {
         match i {
+            RepeatTerm::EOF(p) => p.into(),
             RepeatTerm::Item(j) | RepeatTerm::Separator(j) => j,
         }
+    }
+}
+impl<F> From<Position<F>> for NoMatch<F> {
+    fn from(pos : Position<F>) -> Self {
+        NoMatch{pos}
     }
 }
 
@@ -231,22 +240,34 @@ impl<'a, F> View<'a, F> {
     /// If you don't want to provide a separator then use
     /// [`TrueParser`](crate::tools::TrueParser).
     ///
-    /// *Warning*: either one of main tool and separator must *not* match the empty string,
-    /// otherwise this function will run undefinitely.
-    pub fn repeat_match<T : ParseTool<'a, F>, SEP : ParseTool<'a, F>>(self, t : T, sep : SEP) -> RepeatRet<Self, F> where Self : Clone {
-        match self.clone().match_tool(&t) {
-            Err(e) => (self, 0, RepeatTerm::Item(e)),
-            Ok(mut nst) => {
-                let mut i = 1;
-                loop {
-                    match nst.clone().match_tool(&sep) {
-                        Err(se) => return (nst, i, RepeatTerm::Separator(se)),
-                        Ok(snst) => match snst.match_tool(&t) {
-                            Err(e) => return (nst, i, RepeatTerm::Item(e)),
-                            Ok(newnst) => nst = newnst,
+    /// *Disclaimer*: in order to avoid endless recursion the EOF token (matched only by the empty string
+    /// `""`) is **never** considered a  match for the `T` tool, even if normally ampty strings matches `T`.
+    pub fn repeat_match<T : ParseTool<'a, F>, SEP : ParseTool<'a, F>>(self, t : T, sep : SEP) -> RepeatRet<Self, F> where Self : Clone{
+        if self.view == "" {
+            (self.clone(), 0, RepeatTerm::EOF(self.pos))
+        }
+        else{
+            match self.clone().match_tool(&t) {
+                Err(e) => (self, 0, RepeatTerm::Item(e)),
+                Ok(mut nst) => {
+                    let mut i = 1;
+                    loop {
+                        match nst.clone().match_tool(&sep) {
+                            Err(se) => return (nst, i, RepeatTerm::Separator(se)),
+                            Ok(snst) => {
+                                if self.view == "" {
+                                    return (nst.clone(), i, RepeatTerm::EOF(nst.pos));
+                                }
+                                else {
+                                    match snst.match_tool(&t) {
+                                        Err(e) => return (nst, i, RepeatTerm::Item(e)),
+                                        Ok(newnst) => nst = newnst,
+                                    }
+                                }
+                            }
                         }
+                        i += 1;
                     }
-                    i += 1;
                 }
             }
         }
@@ -256,10 +277,13 @@ impl<'a, F> View<'a, F> {
     /// If you don't want to provide a separator then use
     /// [`TrueParser`](crate::tools::TrueParser).
     ///
-    /// *Warning*: either one of main tool and separator must *not* match the empty string,
-    /// otherwise this function will run undefinitely.
+    /// *Disclaimer*: in order to avoid endless recursion the EOF token (matched only by the empty string
+    /// `""`) is **never** considered a  match for the `T` tool, even if normally ampty strings matches `T`.
     pub fn repeat_match_up<T : ParseTool<'a, F>, SEP : ParseTool<'a, F>>(self, t : T, sep : SEP, bound : usize) -> RepeatRetOpt<Self, F> where Self : Clone {
-        if bound == 0 {
+        if self.view == "" {
+            (self.clone(), 0, Some(RepeatTerm::EOF(self.pos)))
+        }
+        else if bound == 0 {
             (self, 0, None)
         }
         else{
@@ -269,9 +293,16 @@ impl<'a, F> View<'a, F> {
                     for i in 1..bound {
                         match nst.clone().match_tool(&sep) {
                             Err(se) => return (nst, i, Some(RepeatTerm::Separator(se))),
-                            Ok(snst) => match snst.match_tool(&t) {
-                                Err(e) => return (nst, i, Some(RepeatTerm::Item(e))),
-                                Ok(newnst) => nst = newnst,
+                            Ok(snst) => {
+                                if snst.view == "" {
+                                    return (nst.clone(), i, Some(RepeatTerm::EOF(nst.pos)));
+                                }
+                                else {
+                                    match snst.match_tool(&t) {
+                                        Err(e) => return (nst, i, Some(RepeatTerm::Item(e))),
+                                        Ok(newnst) => nst = newnst,
+                                    }
+                                }
                             }
                         }
                     }
@@ -291,7 +322,10 @@ impl<'a, F> View<'a, F> {
         self.parse_continue().map(|i| i.0)
     }
     /// Parse many objects
-    #[cfg(any(doc, feature = "alloc"))]
+    /// 
+    /// *Disclaimer*: in order to avoid endless recursion the EOF token (matched only by the empty string
+    /// `""`) is **never** considered a  match for the `T` tool, even if normally ampty strings matches `T`.
+    #[cfg(any(doc, test, feature = "alloc"))]
     #[cfg_attr(feature = "nightly-features", doc(cfg(feature = "alloc")))]
     pub fn parse_repeat<T : crate::parsable::Parsable<'a, F>, SEP : ParseTool<'a, F>>(self, sep : SEP) -> (alloc::vec::Vec<T>, Self) where Self : Clone {
         let mut ret = alloc::vec::Vec::new();
@@ -317,9 +351,9 @@ impl<'a, F> View<'a, F> {
 }
 
 #[allow(missing_docs)]
-pub type RepeatRet<S, F> = (S, usize, RepeatTerm<NoMatch<F>, NoMatch<F>>);
+pub type RepeatRet<S, F> = (S, usize, RepeatTerm<NoMatch<F>, NoMatch<F>, F>);
 #[allow(missing_docs)]
-pub type RepeatRetOpt<S, F> = (S, usize, Option<RepeatTerm<NoMatch<F>, NoMatch<F>>>);
+pub type RepeatRetOpt<S, F> = (S, usize, Option<RepeatTerm<NoMatch<F>, NoMatch<F>, F>>);
 
 
 

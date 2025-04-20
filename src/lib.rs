@@ -45,12 +45,52 @@
 //! assert_eq!(step.get_view(), "value");                               //match a sequence of whitespaces
 //! assert!(step.match_tool('a').is_err()); // A missing match is an error
 //! ```
+//!
+//! # Main objects
+//! ## [`Position`](crate::pos::Position) and [``Pos<T>``](crate::pos::Pos).
+//! A ``Position<F>`` is an object that holds a location inside a pool of different resources,
+//! where each resource can be identified as a string of textual data.
+//!
+//! These object holds the following information:
+//! - a `file` field of type `F` that identify a single resource inside your pool. Its type is
+//! provided by the user. If you work on a single resource then you should use
+//! [`NoFile`](crate::pos::NoFile) as `file`.
+//! - a position inside such resource, which is represented as the `line` number and `column`
+//! number, both of type `u32`. Lines here can be separated by either `\n` or `\r\n`, and it is an
+//! error if any `\r` character in the resource is not followed by the `\n` character.
+//!
+//! The [``Pos<T, F>``](crate::pos::Pos) is just a pairing of an object of type `T` and a ``Position<F>``.
+//!
+//! ## [``View<'a, F>``](crate::view::View)
+//! A `View<'a, F>` holds a reference to a `str` with lifetime `'a` and a ``Position<F>`` that
+//! locates the first character inside the resources pool. The most important method is
+//! [`match_tool`](crate::view::View::match_tool) that tests if any prefix of the view matches the
+//! provided pattern (called here *tool*) and if it matches then it strips away the matched prefix,
+//! or an error if no prefix matches it.
+//!
+//! If you want to evaluate the original view after a missing match then you can clone it (which is
+//! possible when `F` implements `Clone`).
+//!
+//! ## Tools
+//! A tool is an object that implements the [``ParseTool<'a, F>``]](crate::tools::ParseTool) trait.
+//! These objects incapsulates patterns that a string prefix may or may not satisfy. the
+//! [`tools`] submodule provides many primitive tools which you can use to implement
+//! more sofisticated ones.
+//!
+//! ## Parsable objects
+//! The [``Parsable<'a, F>``](crate::parsable::Parsable) traits represents an object that may be
+//! inizialized by parsing a string prefix. Just like `match_tool`, the
+//! [`parse`](crate::view::View::parse) and similar methods in `View` can be used to inizialize
+//! `Parsable` objects.
 #![deny(missing_docs)]
 #![no_std]
 #![cfg_attr(feature = "nightly-features", feature(doc_cfg))]
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", test, doc))]
 extern crate alloc;
+
+#[cfg(doc)]
+extern crate std;
 
 pub mod pos;
 pub mod view;

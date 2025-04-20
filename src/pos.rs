@@ -44,8 +44,12 @@ impl Display for NoFile{
 /// and the character index inside thai line (also called the _column_).
 ///
 /// Type `F` is any type that can be used to identify a text file, for example a
-/// `String`, a `Path` or a custom type. If you work on a single file and/or you don't want to take
-/// in account the used file just put [`NoFile`] as `F` or don't specify `F`.
+/// [`String`](alloc::string::String), a [`Path`](std::path::Path) or a custom type that implements
+/// at least [`Clone`] in order to provide maximum compatibility with other objects in this crate,
+/// even it is not strictly required.
+///
+/// If you work on a single file and/or you don't want to take
+/// in account the used file just put [`NoFile`] as `F`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Position<FILE = NoFile> {
     file : FILE,
@@ -159,7 +163,7 @@ pub trait PosableMut<F> : Posable<F> {
 }
 
 /// A positioned object, functionally equivalent to a struct containing an object of type `T` (the
-/// wrapped object) and its position as a `Position<FILE>` object.
+/// wrapped object) and its position as a [``Position<FILE>``] object.
 ///
 /// A parser uses characters inside a text file to create more complex objects. When the parsing
 /// fails due to a syntax error you must inform the user about it, in particular you need to tell

@@ -130,9 +130,76 @@ impl<'a, F : Clone, FT, ST> ParseTool<'a, F> for OrTool<FT, ST> where FT : Parse
     }
 }
 
+/// Tool that matches at least one of many subtools
+///
+/// Ordering matters: if one matches then the followings are not tried.
+#[derive(Debug, Clone, Copy)]
+pub struct Or<Tup>(
+    /// Tools to be tested.
+    pub Tup
+);
+/// Tool that matches a sequence of subtools
+#[derive(Debug, Clone, Copy)]
+pub struct SeqTool<Tup>(
+    /// Tools to be tested.
+    pub Tup
+);
+
+macro_rules! or_tuple {
+    {} => {
+        impl<'a, F> ParseTool<'a, F> for Or<()> {
+            fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>> {
+                Err(NoMatch{ pos : st.pos})
+            }
+        }
+        impl<'a, F> ParseTool<'a, F> for SeqTool<()> {
+            fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>> {
+                Ok(st)
+            }
+        }
+    };
+    {$a:ident} => {
+        or_tuple!{}
+        impl<'a, F, $a> ParseTool<'a, F> for Or<($a,)> where $a : ParseTool<'a, F> {
+            fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>> {
+                self.0.0.parse(st)
+            }
+        }
+        impl<'a, F, $a> ParseTool<'a, F> for SeqTool<($a,)> where $a : ParseTool<'a, F> {
+            fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>> {
+                self.0.0.parse(st)
+            }
+        }
+    };
+    {$a:ident, $($r:ident),+} => {
+        or_tuple!{$($r),+}
+        #[allow(non_snake_case)]
+        impl<'a, FF : Clone, $a, $($r),+> ParseTool<'a, FF> for Or<($a, $($r),+)> where $a : ParseTool<'a, FF>, $($r : ParseTool<'a, FF>),+ {
+            fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, NoMatch<FF>> {
+                let ($a, $($r),+) = &self.0;
+                $a.parse(st.clone()).or_else(|_| {
+                    Or(($($r),+,)).parse(st)
+                })
+            }
+        }
+        #[allow(non_snake_case)]
+        impl<'a, FF, $a, $($r),+> ParseTool<'a, FF> for SeqTool<($a, $($r),+)> where $a : ParseTool<'a, FF>, $($r : ParseTool<'a, FF>),+ {
+            fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, NoMatch<FF>> {
+                let ($a, $($r),+) = &self.0;
+                $a.parse(st).and_then(|rst| {
+                    SeqTool(($($r),+,)).parse(rst)
+                })
+            }
+        }
+    }
+}
+
+or_tuple!{A, B, C, D, E, F, G, H, I, J, K, L, M, N, O}
+
 /// Tool that matches repetitions with separator
 ///
-/// Separator data is discarded and not saved
+/// *Disclaimer*: in order to avoid endless recursion the EOF token (matched only by the empty string
+/// `""`) is **never** considered a  match for the `T` tool, even if normally ampty strings matches `T`.
 #[derive(Debug, Clone, Copy)]
 pub struct RepeatTool<T, SEP>{
     tool : T,
@@ -356,6 +423,8 @@ mod tests {
         vw.clone().match_tool(TrueParser).unwrap();
         assert!(vw.clone().match_tool(EOFTool).is_err());
         assert_eq!(vw.clone().match_any_tool(&["Zx", "€à/a re"]).unwrap().1, 1);
-        vw.match_tool::<OrTool<_, &'static str>>(OrTool{fir : EOFTool, sec : "€à"}).unwrap();
+        assert_eq!(vw.clone().match_tool_string(Or((EOFTool, "€à", "€"))).unwrap().1, "€à");
+        assert!(vw.clone().match_tool(Or(('r', "€àb"))).is_err());
+        assert_eq!(vw.clone().match_tool_string(SeqTool(("€à", "/a re", "q se", 'y', EOFTool))).unwrap().1, "€à/a req sey");
     }
 }
