@@ -68,7 +68,10 @@
 //! provided pattern (called here *tool*) and if it matches then it strips away the matched prefix,
 //! or an error if no prefix matches it.
 //!
-//! If you want to evaluate the original view after a missing match then you can clone it (which is
+//! The [`match_tool_string`](crate::view::View::match_tool_string) also provides you the string
+//! prefix that matches the tool.
+//!
+//! *Tip*: If you want to evaluate the original view after a missing match then you can clone it (which is
 //! possible when `F` implements `Clone`).
 //!
 //! ## Tools
@@ -82,6 +85,14 @@
 //! inizialized by parsing a string prefix. Just like `match_tool`, the
 //! [`parse`](crate::view::View::parse) and similar methods in `View` can be used to inizialize
 //! `Parsable` objects.
+//!
+//! # Documented features
+//! A list of features you can optionally enable. None of these are enabled by default:
+//!
+//! - `alloc`: Links the library with the [`alloc`] crate and enable associated functions that works
+//!   with [`Vec`](alloc::vec::Vec) and other containers in `alloc`;
+//! - `nightly-features`: Enable experimental features. **Warning**: it requires nightly builds and
+//!   breaking changes may be introduced even at minor releases.
 #![deny(missing_docs)]
 #![no_std]
 #![cfg_attr(feature = "nightly-features", feature(doc_cfg))]

@@ -28,7 +28,7 @@ use crate::tools::ParseTool;
 
 macro_rules! make_predicate {
     ($n:ident, $p:ident) => {
-        /// Tests if [`$p`](char::$p) is true
+        #[doc = concat!("Tests if [`", stringify!($p), "`](char::", stringify!($p), ") is true.")]
         #[derive(Copy, Clone, Debug, Default)]
         pub struct $n;
 
@@ -53,6 +53,7 @@ macro_rules! make_predicate {
 
 make_predicate!(AsciiTool, is_ascii);
 make_predicate!(AlphabeticTool, is_alphabetic);
+make_predicate!(AlphanumericTool, is_alphanumeric);
 make_predicate!(AsciiAlphabeticTool, is_ascii_alphabetic);
 make_predicate!(AsciiAlphanumericTool, is_ascii_alphanumeric);
 make_predicate!(AsciiDigitTool, is_ascii_digit);
