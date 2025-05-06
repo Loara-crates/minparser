@@ -14,3 +14,7 @@ let step = step.match_tool(minparser::utils::WhiteTool).unwrap();   // Use the W
 assert_eq!(step.get_view(), "value");                               //match a sequence of whitespaces
 assert!(step.match_tool('a').is_err()); // A missing match is an error
 ```
+
+# Links
+
+- [Crates.io](https://crates.io/crates/minparser).
