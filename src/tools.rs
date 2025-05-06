@@ -46,6 +46,12 @@ impl<'a, T, F> ParseTool<'a, F> for &T where T : ParseTool<'a, F> + ?Sized {
 }
 
 /// Matches a string exactly
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool("My dat").unwrap().match_tool("a ").unwrap();
+/// ```
 impl<'a, F> ParseTool<'a, F> for str {
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
         if st.view.starts_with(self) {
@@ -57,7 +63,13 @@ impl<'a, F> ParseTool<'a, F> for str {
     }
 }
 
-/// Matches the first character exactly
+/// Matches the first character exactly.
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool('M').unwrap().match_tool('y').unwrap();
+/// ```
 impl<'a, F> ParseTool<'a, F> for char {
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
         match st.view.chars().next() {
@@ -74,7 +86,46 @@ impl<'a, F> ParseTool<'a, F> for char {
     }
 }
 
+impl<'a, F : Clone> ParseTool<'a, F> for fn(char) -> bool {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        let (nv, oc) = st.clone().pop_char();
+        match oc {
+            None => Err(NoMatch{pos : st.pos}),
+            Some(c) => {
+                if self(c) {
+                    Ok(nv)
+                }
+                else{
+                    Err(NoMatch{pos : st.pos})
+                }
+            }
+        }
+    }
+}
+impl<'a, F : Clone> ParseTool<'a, F> for fn(&char) -> bool {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        let (nv, oc) = st.clone().pop_char();
+        match oc {
+            None => Err(NoMatch{pos : st.pos}),
+            Some(c) => {
+                if self(&c) {
+                    Ok(nv)
+                }
+                else{
+                    Err(NoMatch{pos : st.pos})
+                }
+            }
+        }
+    }
+}
+
 /// Matches any of the tools in the slice.
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool(['M', 'K', 'O']).unwrap().match_tool(["ser", "ii", "y d"]).unwrap();
+/// ```
 impl<'a, F : Clone, R> ParseTool<'a, F> for [R] where R : ParseTool<'a, F> {
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
         st.match_any_tool(self).map(|i| i.0)
@@ -82,6 +133,12 @@ impl<'a, F : Clone, R> ParseTool<'a, F> for [R] where R : ParseTool<'a, F> {
 }
 
 /// Matches any of the tools in the array.
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool(['M', 'K', 'O']).unwrap().match_tool(["ser", "ii", "y d"]).unwrap();
+/// ```
 impl<'a, F : Clone, R, const N : usize> ParseTool<'a, F> for [R; N] where R : ParseTool<'a, F> {
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
         st.match_any_tool(self).map(|i| i.0)
@@ -89,7 +146,13 @@ impl<'a, F : Clone, R, const N : usize> ParseTool<'a, F> for [R; N] where R : Pa
 }
 
 /// Parses only the end of the input
-#[derive(Debug, Clone, Copy)]
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool("My data ").unwrap().match_tool(minparser::tools::EOFTool).unwrap();
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
 pub struct EOFTool;
 
 impl<'a, F> ParseTool<'a, F> for EOFTool{
@@ -103,8 +166,29 @@ impl<'a, F> ParseTool<'a, F> for EOFTool{
     }
 }
 
+/// Matches any character.
+#[derive(Debug, Copy, Clone, Default)]
+pub struct AnyTool;
+
+impl<'a, F> ParseTool<'a, F> for AnyTool {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        let (nv, oc) = st.pop_char();
+        match oc {
+            None => Err(NoMatch{pos : nv.pos}),
+            Some(_) => Ok(nv),
+        }
+    }
+}
+
+
 /// Matches the empty string, therefore it always matches.
-#[derive(Debug, Clone, Copy)]
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool(minparser::tools::TrueParser).unwrap().match_tool("My data ").unwrap();
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
 pub struct TrueParser;
 
 impl<'a, F> ParseTool<'a, F> for TrueParser{
@@ -116,7 +200,7 @@ impl<'a, F> ParseTool<'a, F> for TrueParser{
 /// Tool that matches at least one of two subtools
 ///
 /// Ordering matters: if the first one matches then the second one is not tried.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct OrTool<F, S>{
     /// First tool to be tested.
     pub fir : F,
@@ -130,16 +214,37 @@ impl<'a, F : Clone, FT, ST> ParseTool<'a, F> for OrTool<FT, ST> where FT : Parse
     }
 }
 
-/// Tool that matches at least one of many subtools
+/// Tool that matches at least one of many subtools.
 ///
-/// Ordering matters: if one matches then the followings are not tried.
-#[derive(Debug, Clone, Copy)]
+/// This crate provides
+/// implementation for tuples with up to 15 elements, but thanks to associativity property you can
+/// use nested tuples to support more tools.
+///
+/// *Ordering matters here*: if one matches then the followings are not tried. 
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool(minparser::tools::Or(('Z', "My", 'M')))
+/// .unwrap().match_tool(" data ").unwrap();
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Or<Tup>(
     /// Tools to be tested.
     pub Tup
 );
-/// Tool that matches a sequence of subtools
-#[derive(Debug, Clone, Copy)]
+/// Tool that matches a sequence of subtools.
+///
+/// This crate provides
+/// implementation for tuples with up to 15 elements, but thanks to associativity property you can
+/// use nested tuples to support more tools.
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// let st = "My data ";
+/// ViewFile::new_default(st).match_tool(minparser::tools::SeqTool(('M', "y da", 't', "a"))).unwrap();
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SeqTool<Tup>(
     /// Tools to be tested.
     pub Tup
@@ -201,20 +306,12 @@ or_tuple!{A, B, C, D, E, F, G, H, I, J, K, L, M, N, O}
 /// *Disclaimer*: in order to avoid endless recursion the EOF token (matched only by the empty string
 /// `""`) is **never** considered a  match for the `T` tool, even if normally ampty strings matches `T`.
 #[derive(Debug, Clone, Copy)]
-pub struct RepeatTool<T, SEP>{
-    tool : T,
-    sep : SEP,
-    max : Option<usize>,
-}
+pub struct RepeatTool<T, SEP>(RepeatToolMin<T, SEP>);
 
 impl<T, SEP> RepeatTool<T, SEP>{
     /// Create a new [`RepeatTool`] with specified separator
     pub const fn new_sep(tool : T, sep : SEP, max : Option<usize>) -> Self {
-        Self{
-            tool,
-            sep,
-            max,
-        }
+        Self(RepeatToolMin::new_sep(tool, sep, 0, max))
     }
     /// Create a new [`RepeatTool`] with specified separator and upper bound
     pub const fn new_sep_bounds(tool : T, sep : SEP, max : usize) -> Self {
@@ -232,11 +329,7 @@ impl<T, SEP> RepeatTool<T, SEP>{
 impl<T> RepeatTool<T, TrueParser>{
     /// Create a new [`RepeatTool`] without spaces.
     pub const fn new(tool : T, max : Option<usize>) -> Self {
-        Self{
-            tool,
-            sep : TrueParser,
-            max,
-        }
+        Self(RepeatToolMin::new(tool, 0, max))
     }
     /// Create a new [`RepeatTool`] with specified upper bound
     pub const fn new_bounds(tool : T, max : usize) -> Self {
@@ -254,22 +347,19 @@ impl<T> RepeatTool<T, TrueParser>{
 
 impl<'a, F : Clone, T, SEP> ParseTool<'a, F> for RepeatTool<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F> {
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
-        match self.max {
-            None => {
-                let (ret, _, _) = st.repeat_match(&self.tool, &self.sep);
-                Ok(ret)
-            }
-            Some(m) => {
-                let (ret, _, _) = st.repeat_match_up(&self.tool, &self.sep, m);
-                Ok(ret)
-            }
-        }
+        self.0.parse(st)
     }
 }
 
-/// Tool that matches repetitions with separator requiring a minimum number of repetitions
+/// Tool that matches repetitions with separator requiring a minimum number of repetitions.
 ///
-/// Separator data is discarded and not saved
+/// ```rust
+/// let lt = minparser::view::ViewFile::new_default("a a a a b");
+/// assert_eq!(lt.match_tool_string(minparser::tools::RepeatToolMin::new_sep_unbounded('a', ' ', 2))
+/// .unwrap().1, "a a a a");
+/// assert!(lt.match_tool_string(minparser::tools::RepeatToolMin::new_sep_unbounded('a', ' ', 5))
+/// .is_err());
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct RepeatToolMin<T, SEP>{
     tool : T,
@@ -362,7 +452,89 @@ impl<'a, F : Clone, T, SEP> ParseTool<'a, F> for RepeatToolMin<T, SEP> where T :
         }
     }
 }
+
+/// Tool that matches repetitions lazily.
+///
+/// It matches the least number of `T` tool (sepatared by `SEP`) which are followed by `TERM` tool.
+///
+/// ```rust
+/// use minparser::tools::{LazyRepeatTool, SeqTool};
+/// use minparser::predicates::*;
+/// let st = minparser::view::ViewFile::new_default("a a a a 0 0 1 2");
+/// assert_eq!(st.match_tool_string(
+/// LazyRepeatTool::new_unbounded(
+///     AsciiAlphanumericTool,
+///     WhitespaceTool, 
+///     SeqTool((WhitespaceTool, AsciiDigitTool)),
+///     0)).unwrap().1, 
+/// "a a a a 0");
+/// assert_eq!(st.match_tool_string(
+/// LazyRepeatTool::new_unbounded(
+///     AsciiAlphanumericTool,
+///     WhitespaceTool, 
+///     SeqTool((WhitespaceTool, AsciiDigitTool)),
+///     6)).unwrap().1, 
+/// "a a a a 0 0 1");
+/// assert!(st.match_tool_string(
+/// LazyRepeatTool::new_bounds(
+///     AsciiAlphanumericTool,
+///     WhitespaceTool, 
+///     SeqTool((WhitespaceTool, '2')),
+///     0, 6)).is_err());
+/// ```
+#[derive(Copy, Clone, Debug)]
+pub struct LazyRepeatTool<T, SEP, TERM>{
+    tool : T,
+    sep : SEP,
+    term : TERM,
+    min : usize,
+    max : Option<usize>,
+}
+impl<T, SEP, TERM> LazyRepeatTool<T, SEP, TERM>{
+    /// Create a new `LazyRepeatTool`.
+    ///
+    /// # Panics
+    /// Panic if `max` is strictly lesser than `min`.
+    pub const fn new(tool : T, sep : SEP, term : TERM, min : usize, max : Option<usize>) -> Self {
+        if let Some(m) = max {
+            assert!(m >= min, "Max is strictly lesser than min");
+        }
+        Self{
+            tool,
+            sep,
+            term,
+            min,
+            max,
+        }
+    }
+    /// Create a new `LazyRepeatTool` with specified upper bound.
+    pub const fn new_bounds(tool : T, sep : SEP, term : TERM, min : usize, max : usize) -> Self {
+        Self::new(tool, sep, term, min, Some(max))
+    }
+    /// Create a new `LazyRepeatTool` without upper bound.
+    pub const fn new_unbounded(tool : T, sep : SEP, term : TERM, min : usize) -> Self {
+        Self::new(tool, sep, term, min, None)
+    }
+}
+
+impl<'a, F : Clone, T, SEP, TERM> ParseTool<'a, F> for LazyRepeatTool<T, SEP, TERM> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, TERM : ParseTool<'a, F> {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        st.lazy_repeat_match_bounds(&self.tool, &self.sep, &self.term, self.min, self.max).map(|v| v.0)
+    }
+}
 /// Tool that matches characters which satisfies the provided predicate.
+///
+/// See also [`PredicateRefTool`].
+///
+/// ```rust
+/// use minparser::tools::PredicateRefTool;
+/// use minparser::tools::PredicateTool;
+/// let lt = minparser::view::ViewFile::new_default("aB1৬");
+/// lt.match_tool(PredicateRefTool::new(char::is_ascii_lowercase)).unwrap()
+/// .match_tool(PredicateRefTool::new(char::is_ascii_uppercase)).unwrap()
+/// .match_tool(PredicateRefTool::new(char::is_ascii_digit)).unwrap()
+/// .match_tool(PredicateTool::new(char::is_numeric)).unwrap();
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct PredicateTool<P>{
     predicate : P,
@@ -394,6 +566,60 @@ impl<'a, F : Clone, P : Fn(char) -> bool> ParseTool<'a, F> for PredicateTool<P>{
             None => Err(NoMatch{pos : st.pos}),
             Some(c) => {
                 if (self.predicate)(c) {
+                    Ok(nv)
+                }
+                else{
+                    Err(NoMatch{pos : st.pos})
+                }
+            }
+        }
+    }
+}
+
+/// Tool that matches characters which satisfies the provided ref predicate.
+///
+/// See also [`PredicateTool`].
+///
+/// ```rust
+/// use minparser::tools::PredicateRefTool;
+/// use minparser::tools::PredicateTool;
+/// let lt = minparser::view::ViewFile::new_default("aB1৬");
+/// lt.match_tool(PredicateRefTool::new(char::is_ascii_lowercase)).unwrap()
+/// .match_tool(PredicateRefTool::new(char::is_ascii_uppercase)).unwrap()
+/// .match_tool(PredicateRefTool::new(char::is_ascii_digit)).unwrap()
+/// .match_tool(PredicateTool::new(char::is_numeric)).unwrap();
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct PredicateRefTool<P>{
+    predicate : P,
+}
+
+impl<P : Fn(&char) -> bool> PredicateRefTool<P> {
+    /// Create a new [`PredicateRefTool`] from a predicate.
+    pub const fn new(predicate : P) -> Self {
+        Self{
+            predicate,
+        }
+    }
+    /// Creates a tool that matches zero or more occurrences of characters that satisfy the
+    /// specified predicate.
+    pub const fn new_zero_or_more(predicate : P) -> RepeatTool<Self, TrueParser> {
+        RepeatTool::new_unbounded(Self::new(predicate))
+    }
+    /// Creates a tool that matches one or more occurrences of characters that satisfy the
+    /// specified predicate.
+    pub const fn new_one_or_more(predicate : P) -> RepeatToolMin<Self, TrueParser> {
+        RepeatToolMin::new_unbounded(Self::new(predicate), 1)
+    }
+}
+
+impl<'a, F : Clone, P : Fn(&char) -> bool> ParseTool<'a, F> for PredicateRefTool<P>{
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        let (nv, oc) = st.clone().pop_char();
+        match oc {
+            None => Err(NoMatch{pos : st.pos}),
+            Some(c) => {
+                if (self.predicate)(&c) {
                     Ok(nv)
                 }
                 else{

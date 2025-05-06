@@ -53,11 +53,11 @@
 //!
 //! These object holds the following information:
 //! - a `file` field of type `F` that identify a single resource inside your pool. Its type is
-//! provided by the user. If you work on a single resource then you should use
-//! [`NoFile`](crate::pos::NoFile) as `file`.
+//!   provided by the user. If you work on a single resource then you should use
+//!   [`NoFile`](crate::pos::NoFile) as `file`.
 //! - a position inside such resource, which is represented as the `line` number and `column`
-//! number, both of type `u32`. Lines here can be separated by either `\n` or `\r\n`, and it is an
-//! error if any `\r` character in the resource is not followed by the `\n` character.
+//!   number, both of type `u32`. Lines here can be separated by either `\n` or `\r\n`, and it is an
+//!   error if any `\r` character in the resource is not followed by the `\n` character.
 //!
 //! The [``Pos<T, F>``](crate::pos::Pos) is just a pairing of an object of type `T` and a ``Position<F>``.
 //!
@@ -72,7 +72,7 @@
 //! possible when `F` implements `Clone`).
 //!
 //! ## Tools
-//! A tool is an object that implements the [``ParseTool<'a, F>``]](crate::tools::ParseTool) trait.
+//! A tool is an object that implements the [``ParseTool<'a, F>``](crate::tools::ParseTool) trait.
 //! These objects incapsulates patterns that a string prefix may or may not satisfy. the
 //! [`tools`] submodule provides many primitive tools which you can use to implement
 //! more sofisticated ones.

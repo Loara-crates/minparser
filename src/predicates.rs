@@ -22,16 +22,43 @@
 //!
 //! A lot of predicates already available for `char` type are not included here, even if they are
 //! quite useful. 
-//!
-//! Here an incomplete list of other predicates defined as `char` associate functions:
-//! - [`is_alphabetic`](char::is_alphabetic),
-//! - [`is_ascii_digit`](char::is_ascii_digit),
-//! - [`is_numeric`](char::is_numeric),
-//! - [`is_alphanumeric`](char::is_alphanumeric),
-//! - [`is_ascii`](char::is_ascii),
-//! - [`is_whitespace`](char::is_whitespace),
-//! - [`is_ascii_graphic`](char::is_ascii_graphic) (printable ASCII characters),
-//! - [`is_ascii_punctuation`](char::is_ascii_punctuation).
+
+use crate::view::{View, NoMatch};
+use crate::tools::ParseTool;
+
+macro_rules! make_predicate {
+    ($n:ident, $p:ident) => {
+        /// Tests if [`$p`](char::$p) is true
+        #[derive(Copy, Clone, Debug, Default)]
+        pub struct $n;
+
+        impl<'a, F : Clone> ParseTool<'a, F> for $n {
+            fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+                let (nv, oc) = st.clone().pop_char();
+                match oc {
+                    None => Err(NoMatch{pos : st.pos}),
+                    Some(c) => {
+                        if c.$p() {
+                            Ok(nv)
+                        }
+                        else{
+                            Err(NoMatch{pos : st.pos})
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+make_predicate!(AsciiTool, is_ascii);
+make_predicate!(AlphabeticTool, is_alphabetic);
+make_predicate!(AsciiAlphabeticTool, is_ascii_alphabetic);
+make_predicate!(AsciiAlphanumericTool, is_ascii_alphanumeric);
+make_predicate!(AsciiDigitTool, is_ascii_digit);
+make_predicate!(NumericTool, is_numeric);
+make_predicate!(WhitespaceTool, is_whitespace);
+
 
 /// Tests if a character is a newline character (U+000A, `\n`). Carriage return (U+000D, `\r`) is
 /// not detected by this function because it is usually followed by the newline character.
