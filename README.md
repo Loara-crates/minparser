@@ -17,4 +17,5 @@ assert!(step.match_tool('a').is_err()); // A missing match is an error
 
 # Links
 
+- [Latest documentation](https://docs.rs/minparser/latest/minparser/);
 - [Crates.io](https://crates.io/crates/minparser).
