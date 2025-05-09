@@ -166,6 +166,42 @@ impl<'a, F> ParseTool<'a, F> for EOFTool{
     }
 }
 
+/// Only checks the provided tool, without progressing.
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// use minparser::tools::CheckTool;
+///
+/// ViewFile::new_default("a").match_tool(CheckTool('a')).unwrap()
+///     .match_tool(CheckTool::<fn(&char) -> bool>(char::is_ascii)).unwrap();
+/// ```
+#[derive(Debug, Copy, Clone, Default)]
+pub struct CheckTool<T>(pub T);
+
+impl<'a, F : Clone, T> ParseTool<'a, F> for CheckTool<T> where T : ParseTool<'a, F> {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        st.check_tool(&self.0)
+    }
+}
+
+/// Matches only if the provided tool doesn't match.
+///
+/// ```rust
+/// use minparser::view::ViewFile;
+/// use minparser::tools::CheckInvTool;
+///
+/// ViewFile::new_default("ab").match_tool(CheckInvTool('c')).unwrap()
+///     .match_tool(CheckInvTool('b')).unwrap();
+/// ```
+#[derive(Debug, Copy, Clone, Default)]
+pub struct CheckInvTool<T>(pub T);
+
+impl<'a, F : Clone, T> ParseTool<'a, F> for CheckInvTool<T> where T : ParseTool<'a, F> {
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
+        st.check_inv_tool(&self.0)
+    }
+}
+
 /// Matches any character.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AnyTool;
