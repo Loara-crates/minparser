@@ -17,16 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 //! Other useful parsing tools.
-use crate::view::{View, NoMatch};
-use crate::tools::{ParseTool, RepeatTool, PredicateTool};
+use crate::tools::{ParseTool, PredicateTool, RepeatTool, SeqTool, ToolResult};
 
 /// Tool that matches the newline characters sequences `\n` and `\r\n`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct NewlineTool;
 
-impl<'a, F : Clone> ParseTool<'a, F> for NewlineTool {
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
-        st.match_tool(RepeatTool::new_optional('\r'))?.match_tool('\n')
+impl ParseTool for NewlineTool {
+    fn parse(&self, st : &str) -> ToolResult{
+        SeqTool((RepeatTool::new_bounds('\r', 0, 1), '\n')).parse(st)
     }
 }
 
@@ -34,8 +33,8 @@ impl<'a, F : Clone> ParseTool<'a, F> for NewlineTool {
 #[derive(Debug, Copy, Clone)]
 pub struct WhiteTool;
 
-impl<'a, F : Clone> ParseTool<'a, F> for WhiteTool{
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>> {
-        st.match_tool(RepeatTool::new_unbounded(PredicateTool::new(char::is_whitespace)))
+impl ParseTool for WhiteTool{
+    fn parse(&self, st : &str) -> ToolResult {
+        PredicateTool::new_zero_or_more(char::is_whitespace).parse(st)
     }
 }

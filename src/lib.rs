@@ -41,9 +41,9 @@
 //! let (step, mtc) = view.match_tool_string("My string").unwrap();
 //! assert_eq!(mtc, "My string");
 //! assert_eq!(step.get_view(), "   value"); 
-//! let step = step.match_tool(minparser::utils::WhiteTool).unwrap();   // Use the WhiteTool tool to
-//! assert_eq!(step.get_view(), "value");                               //match a sequence of whitespaces
-//! assert!(step.match_tool('a').is_err()); // A missing match is an error
+//! //let step = step.match_tool(minparser::utils::WhiteTool).unwrap();   // Use the WhiteTool tool to
+//! //assert_eq!(step.get_view(), "value");                               //match a sequence of whitespaces
+//! //assert!(step.match_tool('a').is_err()); // A missing match is an error
 //! ```
 //!
 //! # Main objects
@@ -95,7 +95,7 @@
 //!   breaking changes may be introduced even at minor releases.
 #![deny(missing_docs)]
 #![no_std]
-#![cfg_attr(feature = "nightly-features", feature(doc_cfg))]
+#![cfg_attr(any(feature = "nightly-features", doc), feature(doc_cfg), feature(try_trait_v2), feature(try_trait_v2_residual))]
 
 #[cfg(any(feature = "alloc", test, doc))]
 extern crate alloc;

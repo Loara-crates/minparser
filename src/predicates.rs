@@ -23,8 +23,7 @@
 //! A lot of predicates already available for `char` type are not included here, even if they are
 //! quite useful. 
 
-use crate::view::{View, NoMatch};
-use crate::tools::ParseTool;
+use crate::tools::{ParseTool, ToolResult};
 
 macro_rules! make_predicate {
     ($n:ident, $p:ident) => {
@@ -32,17 +31,16 @@ macro_rules! make_predicate {
         #[derive(Copy, Clone, Debug, Default)]
         pub struct $n;
 
-        impl<'a, F : Clone> ParseTool<'a, F> for $n {
-            fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, NoMatch<F>>{
-                let (nv, oc) = st.clone().pop_char();
-                match oc {
-                    None => Err(NoMatch{pos : st.pos}),
+        impl ParseTool for $n {
+            fn parse(&self, st : &str) -> ToolResult{
+                match st.chars().next() {
+                    None => ToolResult::NoMatch,
                     Some(c) => {
                         if c.$p() {
-                            Ok(nv)
+                            ToolResult::Match{len : c.len_utf8()}
                         }
                         else{
-                            Err(NoMatch{pos : st.pos})
+                            ToolResult::NoMatch
                         }
                     }
                 }
