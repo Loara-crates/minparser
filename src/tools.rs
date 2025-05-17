@@ -339,6 +339,24 @@ impl ParseTool for AnyTool {
     }
 }
 
+/// Discards empty strings from a match.
+///
+/// Some tools that needs to match an undefined number of other tools (like [`RepeatTool`] or
+/// [`LazyRepeatTool`]) may enter in an infinite loop if the inner tool matches an empty string `""`. 
+/// In that case indeed there always be a match but the tool does not progress, resulting so in an
+/// endless cycle.
+///
+/// This tool takes another tool and converts any match with an empty string with a missing match,
+/// avoiding so the issue.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NonEmpty<P>(pub P);
+
+impl<P : ParseTool> ParseTool for NonEmpty<P> {
+    fn parse(&self, st: &str) -> ToolResult {
+        self.0.parse(st).and_then(|len| if len > 0 {ToolResult::Match{len}} else {ToolResult::NoMatch})
+    }
+}
+
 /// Matches the empty string, therefore it always matches.
 ///
 /// ```rust
