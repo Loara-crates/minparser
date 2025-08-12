@@ -100,7 +100,7 @@ impl<F> Position<F>{
             c : self.c,
         }
     }
-    /// Unpacks the position
+    /// Unpacks the position.
     ///
     /// The first integer is the line number, the second one the column number
     #[must_use]

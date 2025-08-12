@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 //! [`View`] and other associated utilities.
-use crate::pos::{Position, NoFile, Posable};
-use crate::tools::{ParseTool, ParseToolData, ToolResult, ToolResultData};
+use crate::pos::{Position, NoFile, Posable, Pos};
+use crate::tools::{ParseTool, ParseToolData, ParseToolErr, ToolResult, ToolResultData, ToolResultErr};
 
 /// A view on a `str` to be parsed.
 ///
@@ -152,6 +152,17 @@ impl<'a, F> View<'a, F> {
         match t.parse(self.view, p) {
             ToolResultData::Match{len, data} => Ok((self.progress(len).0, data)),
             ToolResultData::NoMatch => Err(PosNoMatch{pos : self.pos}),
+        }
+    }
+    /// Matches a [`ParseToolErr`] with a custom error type.
+    ///
+    /// # Errors
+    /// An error is raised for a missing match, together with the [`Position`] at which it happened.
+    #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
+    pub fn match_tool_err<R : ParseToolErr>(self, t : R) -> Result<Self, Pos<R::Error, F>> {
+        match t.parse(self.view) {
+            ToolResultErr::Match{len} => Ok(self.progress(len).0),
+            ToolResultErr::NoMatch{err} => Err(Pos::new(err, self.pos)),
         }
     }
     /// Applies the matching tool and returns the prefix matching such tool

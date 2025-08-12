@@ -94,8 +94,9 @@
 //! - `nightly-features`: Enable experimental features. **Warning**: it requires nightly builds and
 //!   breaking changes may be introduced even at minor releases.
 #![deny(missing_docs)]
+#![deny(clippy::all, clippy::pedantic, clippy::nursery)]
 #![no_std]
-#![cfg_attr(any(feature = "nightly-features", doc), feature(doc_cfg), feature(try_trait_v2), feature(try_trait_v2_residual))]
+#![cfg_attr(any(feature = "nightly-features", doc, test), feature(doc_cfg), feature(try_trait_v2), feature(try_trait_v2_residual))]
 
 #[cfg(any(feature = "alloc", test, doc))]
 extern crate alloc;

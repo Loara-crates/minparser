@@ -43,6 +43,19 @@ pub enum ToolResultData<D>{
     /// A failed match.
     NoMatch,
 }
+/// Return type of a [`ParseToolErr`].
+pub enum ToolResultErr<E>{
+    /// A successful match.
+    Match{
+        /// The length in bytes of the matching prefix.
+        len : usize,
+    },
+    /// A failed match.
+    NoMatch{
+        /// Error data
+        err : E,
+    }
+}
 
 impl ToolResult{
     /// Apply `f` to a successful match.
@@ -93,7 +106,18 @@ impl<D> ToolResultData<D> {
     }
 }
 
-#[cfg(any(feature = "nightly-features", doc))]
+impl<E> ToolResultErr<E> {
+    /// Convert to a `Result`.
+    #[allow(clippy::missing_errors_doc)]
+    pub fn into_result(self) -> Result<usize, E> {
+        match self {
+            Self::Match{len} => Ok(len),
+            Self::NoMatch{err} => Err(err),
+        }
+    }
+}
+
+#[cfg(any(feature = "nightly-features", doc, test))]
 mod try_mod {
     use core::ops::{Try, FromResidual, ControlFlow, Residual};
 
@@ -148,6 +172,42 @@ pub trait ParseTool {
     }
 }
 
+/// A tool that always matches.
+///
+/// Note: even if the tool always matches the match length may be equal to 0, which sometimes can
+/// be interpreted as a failed match.
+///
+/// If An object implements this trait, then [`ParseTool`] should be implemented as follows:
+///
+/// ```
+/// use minparser::prelude::*;
+/// struct A;
+///
+/// impl AlwaysParseTool for A {
+///     fn parse_always(&self, st : &str) -> usize { todo!(); }
+/// }
+/// 
+/// impl ParseTool for A {
+///     fn parse(&self, st : &str) -> ToolResult { 
+///         ToolResult::Match{len : self.parse_always(st)}
+///     }
+/// }
+/// ```
+pub trait AlwaysParseTool : ParseTool {
+    /// Returns the length of the match
+    fn parse_always(&self, st : &str) -> usize;
+}
+
+macro_rules! always_parse {
+    ($i:ident) => {
+        impl ParseTool for $i {
+            fn parse(&self, st : &str) -> ToolResult { 
+                ToolResult::Match{len : self.parse_always(st)}
+            }
+        }
+    }
+}
+
 /// A tool that can generate additional `Data` after a successful match.
 ///
 /// Type `P` can be used not only to pass additional information to generate the `Data`, but can be
@@ -159,6 +219,19 @@ pub trait ParseToolData<'a, P> {
 
     /// The main parsing algorithm.
     fn parse(&self, st : &'a str, par : P) -> ToolResultData<Self::Data>;
+}
+
+/// Trait for tools which needs a custom error type.
+pub trait ParseToolErr{
+    /// Error type.
+    type Error;
+    /// The main parsing algorithm.
+    ///
+    /// For additional information read [`ParseTool::parse`].
+    ///
+    /// # Errors
+    /// If no prefix of `st` satisfies this parsing strategy then an error is issued.
+    fn parse(&self, st : &str) -> ToolResultErr<Self::Error>;
 }
 
 impl<T> ParseTool for &T where T : ParseTool + ?Sized {
@@ -367,11 +440,12 @@ impl<P : ParseTool> ParseTool for NonEmpty<P> {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TrueParser;
 
-impl ParseTool for TrueParser{
-    fn parse(&self, _ : &str) -> ToolResult {
-        ToolResult::Match{len : 0}
+impl AlwaysParseTool for TrueParser{
+    fn parse_always(&self, _ : &str) -> usize {
+        0
     }
 }
+always_parse!(TrueParser);
 
 /// Tool that matches at least one of many subtools.
 ///
@@ -532,10 +606,8 @@ impl<T> RepeatTool<T, TrueParser>{
 
 impl<T, SEP> ParseTool for RepeatTool<T, SEP> where T : ParseTool, SEP : ParseTool {
     fn parse(&self, mut st : &str) -> ToolResult{
-        if let Some(max) = self.max {
-            if max < self.min {
-                return ToolResult::NoMatch;
-            }
+        if let Some(max) = self.max && max < self.min {
+            return ToolResult::NoMatch;
         }
         let mut len = 0;
         let mut start = self.min;
@@ -603,6 +675,107 @@ impl<T, SEP> ParseTool for RepeatTool<T, SEP> where T : ParseTool, SEP : ParseTo
         }
     }
 }
+
+/// Tool that matches repetitions with separator.
+///
+/// Like [`RepeatTool`] but without specifying a minimum number of repetitions. Therefore. it will
+/// always match.
+#[derive(Debug, Clone, Copy)]
+pub struct RepeatAnyTool<T, SEP>{
+    tool : T,
+    sep : SEP,
+    max : Option<usize>,
+}
+
+impl<T, SEP> RepeatAnyTool<T, SEP>{
+    /// Create a new [`RepeatAnyTool`] with specified separator.
+    pub const fn new_sep(tool : T, sep : SEP, max : Option<usize>) -> Self {
+        Self{
+            tool,
+            sep,
+            max,
+        }
+    }
+    /// Create a new [`RepeatAnyTool`] with specified separator and upper bound
+    pub const fn new_sep_bounds(tool : T, sep : SEP, max : usize) -> Self {
+        Self::new_sep(tool, sep, Some(max))
+    }
+    /// Create a new [`RepeatAnyTool`] with specified separator without upper bound
+    pub const fn new_sep_unbounded(tool : T, sep : SEP) -> Self {
+        Self::new_sep(tool, sep, None)
+    }
+}
+impl<T> RepeatAnyTool<T, TrueParser>{
+    /// Create a new [`RepeatAnyTool`] without spaces.
+    pub const fn new(tool : T, max : Option<usize>) -> Self {
+        Self{
+            tool,
+            sep : TrueParser,
+            max,
+        }
+    }
+    /// Create a new [`RepeatAnyTool`] with specified upper bound
+    pub const fn new_bounds(tool : T, max : usize) -> Self {
+        Self::new(tool, Some(max))
+    }
+    /// Create a new [`RepeatAnyTool`] without upper bound
+    pub const fn new_unbounded(tool : T) -> Self {
+        Self::new(tool, None)
+    }
+}
+
+impl<T, SEP> AlwaysParseTool for RepeatAnyTool<T, SEP> where T : ParseTool, SEP : ParseTool {
+    fn parse_always(&self, mut st : &str) -> usize{
+        let mut len = 0;
+        let mut start = 0;
+        if let ToolResult::Match{len : ilen} = self.tool.parse(st) {
+            st = &st[ilen..];
+            len += ilen;
+            start += 1;
+        }
+        else{
+            return 0;
+        }
+        if let Some(max) = self.max {
+            for _ in start..max {
+                if let ToolResult::Match{len : splen} = self.sep.parse(st) {
+                    if let ToolResult::Match{len : tlen} = self.tool.parse(&st[splen..]) {
+                        st = &st[(splen + tlen)..];
+                        len += splen + tlen;
+                    }
+                    else{
+                        return len;
+                    }
+                }
+                else{
+                    return len;
+                }
+            }
+            return len;
+        }
+        loop {
+            if let ToolResult::Match{len : splen} = self.sep.parse(st) {
+                if let ToolResult::Match{len : tlen} = self.tool.parse(&st[splen..]) {
+                    st = &st[(splen + tlen)..];
+                    len += splen + tlen;
+                }
+                else{
+                    return len;
+                }
+            }
+            else{
+                return len;
+            }
+        }
+    }
+}
+
+impl<T, SEP> ParseTool for RepeatAnyTool<T, SEP> where T : ParseTool, SEP : ParseTool {
+    fn parse(&self, st : &str) -> ToolResult {
+        ToolResult::Match{len : self.parse_always(st)}
+    }
+}
+
 
 /// Tool that matches repetitions lazily.
 ///
@@ -695,10 +868,8 @@ impl<'a, T, SEP, TERM> ParseToolData<'a, LazyNoTerm> for LazyRepeatTool<T, SEP, 
     fn parse(&self, mut st : &'a str, _ : LazyNoTerm) -> ToolResultData<&'a str>{
         let ini = st;
         let joint = SeqTool((&self.sep, &self.tool));
-        if let Some(max) = self.max {
-            if max < self.min {
-                return ToolResultData::NoMatch;
-            }
+        if let Some(max) = self.max && max < self.min {
+            return ToolResultData::NoMatch;
         }
         let mut len = 0;
         let mut start = self.min;
