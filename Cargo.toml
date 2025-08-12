@@ -1,6 +1,6 @@
 [package]
 name = "minparser"
-version = "0.8.2"
+version = "0.8.3"
 description = "Simple parsing functions"
 edition = "2024"
 license = "GPL-3.0-or-later"
@@ -13,6 +13,9 @@ readme = "README.md"
 [features]
 alloc = []
 nightly-features = []
+
+[dependencies]
+thiserror = { version = "2.0.14", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

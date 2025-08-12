@@ -43,19 +43,6 @@ pub enum ToolResultData<D>{
     /// A failed match.
     NoMatch,
 }
-/// Return type of a [`ParseToolErr`].
-pub enum ToolResultErr<E>{
-    /// A successful match.
-    Match{
-        /// The length in bytes of the matching prefix.
-        len : usize,
-    },
-    /// A failed match.
-    NoMatch{
-        /// Error data
-        err : E,
-    }
-}
 
 impl ToolResult{
     /// Apply `f` to a successful match.
@@ -106,22 +93,11 @@ impl<D> ToolResultData<D> {
     }
 }
 
-impl<E> ToolResultErr<E> {
-    /// Convert to a `Result`.
-    #[allow(clippy::missing_errors_doc)]
-    pub fn into_result(self) -> Result<usize, E> {
-        match self {
-            Self::Match{len} => Ok(len),
-            Self::NoMatch{err} => Err(err),
-        }
-    }
-}
-
 #[cfg(any(feature = "nightly-features", doc, test))]
 mod try_mod {
     use core::ops::{Try, FromResidual, ControlFlow, Residual};
 
-    /// Error tyoe for [`ToolResult`](crate::tools::ToolResult).
+    /// Error type for [`ToolResult`](crate::tools::ToolResult).
     pub struct ToolResultErr;
 
     impl Try for super::ToolResult {
@@ -219,19 +195,6 @@ pub trait ParseToolData<'a, P> {
 
     /// The main parsing algorithm.
     fn parse(&self, st : &'a str, par : P) -> ToolResultData<Self::Data>;
-}
-
-/// Trait for tools which needs a custom error type.
-pub trait ParseToolErr{
-    /// Error type.
-    type Error;
-    /// The main parsing algorithm.
-    ///
-    /// For additional information read [`ParseTool::parse`].
-    ///
-    /// # Errors
-    /// If no prefix of `st` satisfies this parsing strategy then an error is issued.
-    fn parse(&self, st : &str) -> ToolResultErr<Self::Error>;
 }
 
 impl<T> ParseTool for &T where T : ParseTool + ?Sized {

@@ -18,7 +18,7 @@
  */
 //! [`View`] and other associated utilities.
 use crate::pos::{Position, NoFile, Posable};
-use crate::tools::{ParseTool, ParseToolData, ToolResult, ToolResultData};
+use crate::toolerr::{ParseTool, ParseToolData, ToolResult, ToolResultData};
 
 /// A view on a `str` to be parsed.
 ///
@@ -34,9 +34,11 @@ pub struct View<'a, F = NoFile>{
 /// The standard error type for a missing match at specified position.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
-pub struct PosNoMatch<F = NoFile>{
+pub struct PosNoMatch<E, F = NoFile>{
     /// Error position.
     pub pos : Position<F>,
+    /// Error data
+    pub err : E,
 }
 
 /// [`View`] alias if you don't want to specify a file.
@@ -48,25 +50,25 @@ impl<F> AsRef<str> for View<'_, F>{
     }
 }
 
-impl<F> From<core::convert::Infallible> for PosNoMatch<F> {
+impl<E, F> From<core::convert::Infallible> for PosNoMatch<E, F> {
     fn from(i : core::convert::Infallible) -> Self {
         match i {}
     }
 }
-impl<F> From<Position<F>> for PosNoMatch<F> {
+impl<F> From<Position<F>> for PosNoMatch<(), F> {
     fn from(pos : Position<F>) -> Self {
-        Self{pos}
+        Self{pos, err : ()}
     }
 }
 
-impl<F : core::fmt::Display> core::fmt::Display for PosNoMatch<F>{
+impl<E : core::fmt::Display, F : core::fmt::Display> core::fmt::Display for PosNoMatch<E, F>{
     fn fmt(&self, fd : &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(fd, "{}: No match", self.pos)
+        write!(fd, "{}: {}", self.pos, self.err)
     }
 }
-impl<F : core::fmt::Debug + core::fmt::Display> core::error::Error for PosNoMatch<F> {}
+impl<E : core::error::Error, F : core::fmt::Debug + core::fmt::Display> core::error::Error for PosNoMatch<E, F> {}
 
-impl<F> Posable<F> for PosNoMatch<F> {
+impl<E, F> Posable<F> for PosNoMatch<E, F> {
     fn get_pos(&self) -> &Position<F>{
         &self.pos
     }
@@ -138,20 +140,29 @@ impl<'a, F> View<'a, F> {
     pub fn match_map<E, FF : FnOnce(Self) -> Result<Self, E>>(self, f : FF) -> Result<Self, E> {
         f(self)
     }
-    /// Matches a tool with the view
+    /// Matches a tool with the view.
     #[allow(clippy::missing_errors_doc)]
-    pub fn match_tool<R : ParseTool>(self, t : R) -> Result<Self, PosNoMatch<F>> {
+    pub fn match_tool<R : ParseTool>(self, t : R) -> Result<Self, PosNoMatch<R::Error, F>> {
         match t.parse(self.view) {
             ToolResult::Match{len} => Ok(self.progress(len).0),
-            ToolResult::NoMatch => Err(PosNoMatch{pos : self.pos}),
+            ToolResult::NoMatch(err) => Err(PosNoMatch{err, pos : self.pos}),
         }
     }
+    /// Matches a tool with the entire view, not only with a prefix.
+    #[allow(clippy::missing_errors_doc)]
+    pub fn match_tool_final<R : ParseTool>(self, t : R) -> Result<(), PosNoMatch<Option<R::Error>, F>> {
+        use crate::toolerr::{ErrorTool, EOFTool};
+        self.match_tool(ErrorTool::new(t, |e, _| Some(e)))?
+            .match_tool(ErrorTool::new(EOFTool, |(), _| None)).map(|_| ())
+    }
     /// Matches a [`ParseToolData`].
+    ///
+    /// Parameter `P` can be used to provide additional parameter to the `ParseToolData` object.
     #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
-    pub fn match_tool_data<P, R : ParseToolData<'a, P>>(self, t : R, p : P) -> Result<(Self, R::Data), PosNoMatch<F>> {
+    pub fn match_tool_data<P, R : ParseToolData<'a, P>>(self, t : R, p : P) -> Result<(Self, R::Data), PosNoMatch<R::Error, F>> {
         match t.parse(self.view, p) {
             ToolResultData::Match{len, data} => Ok((self.progress(len).0, data)),
-            ToolResultData::NoMatch => Err(PosNoMatch{pos : self.pos}),
+            ToolResultData::NoMatch(err) => Err(PosNoMatch{err, pos : self.pos}),
         }
     }
     /// Applies the matching tool and returns the prefix matching such tool
@@ -160,21 +171,11 @@ impl<'a, F> View<'a, F> {
     /// should refer to a suffix of this `View`, which should always be the case whenever `t`
     /// doesn't introduce foreign views. Otherwise a panic would likely happens.
     #[allow(clippy::missing_errors_doc)]
-    pub fn match_tool_string<R : ParseTool>(self, t : R) -> Result<(Self, &'a str), PosNoMatch<F>> {
+    pub fn match_tool_string<R : ParseTool>(self, t : R) -> Result<(Self, &'a str), PosNoMatch<R::Error, F>> {
         match t.parse(self.view) {
             ToolResult::Match{len} => Ok(self.progress(len)),
-            ToolResult::NoMatch => Err(PosNoMatch{pos : self.pos}),
+            ToolResult::NoMatch(err) => Err(PosNoMatch{err, pos : self.pos}),
         }
-    }
-    /// Parses an object and continue the parsing
-    #[allow(clippy::missing_errors_doc)]
-    pub fn parse_continue<T : crate::parsable::Parsable<'a, F>>(self) -> Result<(T, Self), T::Error> {
-        T::parse(self)
-    }
-    /// Parses an object
-    #[allow(clippy::missing_errors_doc)]
-    pub fn parse<T : crate::parsable::Parsable<'a, F>>(self) -> Result<T, T::Error> {
-        self.parse_continue().map(|i| i.0)
     }
 }
 
