@@ -22,15 +22,14 @@
 //! This crate is a collection of objects and algorithms shared among different crates that needs
 //! to implement a parser. 
 //!
-//! A [``Position``](pos::Position) is an object that identifies a (textual) *file* and a position inside it,
+//! A [``Position<F>``](pos::Position) is an object that identifies a (textual) *file* and a position inside it,
 //! represented as a *line index* and a *column index*. The main role of a `Position` object is to
 //! uniquely identify a single character or a token inside a file in order to allow the
 //! user to easily find it.
 //!
-//! A [``View<'a, D, F>``](view::View) can be seen as a suffix of a larger string with the position of
-//! its first character and some data of type `D`. The [``match_tool``](view::View::match_tool) method
-//! can be used to match its prefix with any object implementing the [``ParseTool``](tools::ParseTool) 
-//! trait which represents a pattern that can be satisfied or not by a string.
+//! A [``View<'a, F>``](view::View) can be seen as a suffix of a larger string with the position of
+//! its first character. The [``match_tool``](view::View::match_tool) method can be used to match its 
+//! prefix with any object implementing the [``ParseTool``](tools::ParseTool) trait.
 //!
 //! Many useful parsing tools can be found in [`tools`] and [`utils`] modules.
 //!
@@ -47,7 +46,7 @@
 //! ```
 //!
 //! # Main objects
-//! ## [`Position`](crate::pos::Position) and [``Pos<T>``](crate::pos::Pos).
+//! ## [`Position<F>`](crate::pos::Position) and [``Pos<T, F>``](crate::pos::Pos).
 //! A ``Position<F>`` is an object that holds a location inside a pool of different resources,
 //! where each resource can be identified as a string of textual data.
 //!
@@ -75,7 +74,7 @@
 //! possible when `F` implements `Clone`).
 //!
 //! ## Tools
-//! A tool is an object that implements the [``ParseTool<'a, F>``](crate::tools::ParseTool) trait.
+//! A tool is an object that implements the [``ParseTool``](crate::tools::ParseTool) trait.
 //! These objects incapsulates patterns that a string prefix may or may not satisfy. the
 //! [`tools`] submodule provides many primitive tools which you can use to implement
 //! more sofisticated ones.

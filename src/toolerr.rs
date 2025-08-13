@@ -108,6 +108,14 @@ impl ToolResult<core::convert::Infallible> {
             Self::NoMatch(_) => unreachable!(),
         }
     }
+    /// Unwrap the object.
+    #[must_use]
+    pub const fn unwrap(self) -> usize {
+        match self{
+            Self::Match{len} => len,
+            Self::NoMatch(_) => unreachable!(),
+        }
+    }
 }
 
 impl<D, E> ToolResultData<D, E> {
