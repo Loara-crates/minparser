@@ -18,7 +18,7 @@
  */
 //! [`View`] and other associated utilities.
 use crate::pos::{Position, NoFile, Posable};
-use crate::toolerr::{ParseTool, ParseToolData, ToolResult, ToolResultData};
+use crate::toolerr::{ParseTool, ParseToolData, ToolResult, ToolResultData, AlwaysParseTool};
 
 /// A view on a `str` to be parsed.
 ///
@@ -147,6 +147,13 @@ impl<'a, F> View<'a, F> {
             ToolResult::Match{len} => Ok(self.progress(len).0),
             ToolResult::NoMatch(err) => Err(PosNoMatch{err, pos : self.pos}),
         }
+    }
+    /// Matches a tool that always matches.
+    #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn match_always<R : AlwaysParseTool>(self, t : R) -> Self {
+        let len = t.parse_always(self.view);
+        self.progress(len).0
     }
     /// Enforce that all the string has been parsed.
     #[allow(clippy::missing_errors_doc)]
