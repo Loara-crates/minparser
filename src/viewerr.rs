@@ -148,6 +148,12 @@ impl<'a, F> View<'a, F> {
             ToolResult::NoMatch(err) => Err(PosNoMatch{err, pos : self.pos}),
         }
     }
+    /// Enforce that all the string has been parsed.
+    #[allow(clippy::missing_errors_doc)]
+    pub fn finish(self) -> Result<(), PosNoMatch<(), F>> {
+        self.match_tool(crate::toolerr::EOFTool).map(|_| ())
+    }
+
     /// Matches a tool with the entire view, not only with a prefix.
     #[allow(clippy::missing_errors_doc)]
     pub fn match_tool_final<R : ParseTool>(self, t : R) -> Result<(), PosNoMatch<Option<R::Error>, F>> {
