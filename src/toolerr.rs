@@ -204,6 +204,11 @@ pub trait ParseTool {
 pub trait AlwaysParseTool : ParseTool<Error = core::convert::Infallible> {
     /// Returns the length of the match
     fn parse_always(&self, st : &str) -> usize;
+
+    /// Converts to any tool.
+    fn into_any<E>(self) -> ErrorTool<Self, E, fn(core::convert::Infallible, &str) -> E> where Self : Sized {
+        ErrorTool(self, |_, _| unreachable!(), core::marker::PhantomData)
+    }
 }
 
 macro_rules! always_parse {
