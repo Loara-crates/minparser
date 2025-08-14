@@ -39,18 +39,17 @@ pub struct View<'a, F = NoFile>{
 /// ```rust
 /// use minparser::prelude_new::*;
 ///
-/// let try_block = |v : ViewFile<'_>| {
-///     MatchSwitch::new(v)
-///         .switch_case('a', |_| 0)?
+/// let try_block = |v : MatchSwitch| {
+///     v.switch_case('a', |_| 0)?
 ///         .switch_case('b', |_| 1)?
 ///         .switch_case("ab", |_| unreachable!())? // the first case branch has higher priority
 ///         .switch_default(|_| -1)
 /// };
 ///
-/// assert_eq!(try_block(ViewFile::new_default("ad")).break_value(), Some(0));
-/// assert_eq!(try_block(ViewFile::new_default("b gt ")).break_value(), Some(1));
-/// assert_eq!(try_block(ViewFile::new_default("ab")).break_value(), Some(0));
-/// assert_eq!(try_block(ViewFile::new_default("cd")).break_value(), Some(-1));
+/// assert_eq!(MatchSwitch::new_str("ad").try_block(try_block), 0);
+/// assert_eq!(MatchSwitch::new_str("b gt ").try_block(try_block), 1);
+/// assert_eq!(MatchSwitch::new_str("ab").try_block(try_block), 0);
+/// assert_eq!(MatchSwitch::new_str("cd").try_block(try_block), -1);
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub struct MatchSwitch<'a, F = NoFile>(View<'a, F>);
@@ -225,6 +224,10 @@ impl<'a, F : Clone> MatchSwitch<'a, F>{
     pub fn new_str_file(s : &'a str, f : F) -> Self {
         Self(View::new(s, f))
     }
+    /// Creates a new `MatchSwitch` from a string.
+    pub fn new_str(s : &'a str) -> Self where F : Default {
+        Self(View::new(s, F::default()))
+    }
     /// Converts it into a [`View`].
     pub fn into_view(self) -> View<'a, F> {
         self.0
@@ -252,6 +255,10 @@ impl<'a, F : Clone> MatchSwitch<'a, F>{
     /// [``ControlFlow<_, Infallible>``](core::ops::ControlFlow).
     pub fn switch_default<D, FN : FnOnce(View<'a, F>) -> D>(self, f : FN) -> core::ops::ControlFlow<D, core::convert::Infallible> {
         core::ops::ControlFlow::Break(f(self.0))
+    }
+    /// A convenience wrapper that should work just like the still not stabilized `try` block.
+    pub fn try_block<D, FN : FnOnce(Self) -> core::ops::ControlFlow<D, core::convert::Infallible>>(self, f : FN) -> D {
+        f(self).break_value().expect("")
     }
 }
 
