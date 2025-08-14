@@ -31,6 +31,30 @@ pub struct View<'a, F = NoFile>{
     pub(crate) pos : Position<F>,
 }
 
+/// A switch-case wrapper object for [`View`] objects.
+///
+/// It works just like a `switch` statement, with each `case` branch tests if the provided tool
+/// matches.
+///
+/// ```rust
+/// use minparser::prelude_new::*;
+///
+/// let try_block = |v : ViewFile<'_>| {
+///     MatchSwitch::new(v)
+///         .switch_case('a', |_| 0)?
+///         .switch_case('b', |_| 1)?
+///         .switch_case("ab", |_| unreachable!())? // the first case branch has higher priority
+///         .switch_default(|_| -1)
+/// };
+///
+/// assert_eq!(try_block(ViewFile::new_default("ad")).break_value(), Some(0));
+/// assert_eq!(try_block(ViewFile::new_default("b gt ")).break_value(), Some(1));
+/// assert_eq!(try_block(ViewFile::new_default("ab")).break_value(), Some(0));
+/// assert_eq!(try_block(ViewFile::new_default("cd")).break_value(), Some(-1));
+/// ```
+#[derive(Debug, Copy, Clone)]
+pub struct MatchSwitch<'a, F = NoFile>(View<'a, F>);
+
 /// The standard error type for a missing match at specified position.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
@@ -189,6 +213,45 @@ impl<'a, F> View<'a, F> {
             ToolResult::Match{len} => Ok(self.progress(len)),
             ToolResult::NoMatch(err) => Err(PosNoMatch{err, pos : self.pos}),
         }
+    }
+}
+
+impl<'a, F : Clone> MatchSwitch<'a, F>{
+    /// Creates a new `MatchSwitch`.
+    pub fn new(v : View<'a, F>) -> Self {
+        Self(v)
+    }
+    /// Creates a new `MatchSwitch` from a string and a file identifier.
+    pub fn new_str_file(s : &'a str, f : F) -> Self {
+        Self(View::new(s, f))
+    }
+    /// Converts it into a [`View`].
+    pub fn into_view(self) -> View<'a, F> {
+        self.0
+    }
+    /// Execute function on a successful match.
+    ///
+    /// This works just like a `case` branch in a `switch` statement: if the provided tool matches
+    /// then the function parameter is executed with the advanced [`View`] object as parameter.
+    ///
+    /// If you don't want to advance the view then you should provide instead the
+    /// [check-only](ParseTool::only_check) version of your tool.
+    pub fn switch_case<D, T : ParseTool, FN : FnOnce(View<'a, F>) -> D>(self, tool : T, f : FN) -> core::ops::ControlFlow<D, Self> {
+        match self.0.clone().match_tool(tool) {
+            Ok(st) => core::ops::ControlFlow::Break(f(st)),
+            Err(_) => core::ops::ControlFlow::Continue(self),
+        }
+    }
+    /// Execute provided function and consume the `MatchSwitch` object.
+    ///
+    /// This works just like the `default` branch in a `switch` statement.
+    pub fn switch_default_into<D, FN : FnOnce(View<'a, F>) -> D>(self, f : FN) -> D {
+        f(self.0)
+    }
+    /// Just like [`switch_default_into`](Self::switch_default_into) but wraps the value into a
+    /// [``ControlFlow<_, Infallible>``](core::ops::ControlFlow).
+    pub fn switch_default<D, FN : FnOnce(View<'a, F>) -> D>(self, f : FN) -> core::ops::ControlFlow<D, core::convert::Infallible> {
+        core::ops::ControlFlow::Break(f(self.0))
     }
 }
 

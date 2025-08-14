@@ -477,7 +477,7 @@ impl ParseTool for AnyTool {
 /// Discards empty strings from a match.
 ///
 /// Some tools that needs to match an undefined number of other tools (like [`RepeatTool`] or
-/// [`LazyRepeatTool`]) may enter in an infinite loop if the inner tool matches an empty string `""`. 
+/// [`LazyRepeatAnyTool`]) may enter in an infinite loop if the inner tool matches an empty string `""`. 
 /// In that case indeed there always be a match but the tool does not progress, resulting so in an
 /// endless cycle.
 ///
@@ -890,7 +890,7 @@ pub struct LazyRepeatAnyTool<T, SEP, TERM>{
     max : Option<usize>,
 }
 
-/// Unit struct for [`LazyRepeatTool`] in order to return a matching string without `TERM`.
+/// Unit struct for [`LazyRepeatAnyTool`] in order to return a matching string without `TERM`.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct LazyNoTerm;
 
