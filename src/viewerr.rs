@@ -217,14 +217,17 @@ impl<'a, F> View<'a, F> {
 
 impl<'a, F : Clone> MatchSwitch<'a, F>{
     /// Creates a new `MatchSwitch`.
-    pub fn new(v : View<'a, F>) -> Self {
+    #[must_use]
+    pub const fn new(v : View<'a, F>) -> Self {
         Self(v)
     }
     /// Creates a new `MatchSwitch` from a string and a file identifier.
-    pub fn new_str_file(s : &'a str, f : F) -> Self {
+    #[must_use]
+    pub const fn new_str_file(s : &'a str, f : F) -> Self {
         Self(View::new(s, f))
     }
     /// Creates a new `MatchSwitch` from a string.
+    #[must_use]
     pub fn new_str(s : &'a str) -> Self where F : Default {
         Self(View::new(s, F::default()))
     }
@@ -240,10 +243,10 @@ impl<'a, F : Clone> MatchSwitch<'a, F>{
     /// If you don't want to advance the view then you should provide instead the
     /// [check-only](ParseTool::only_check) version of your tool.
     pub fn switch_case<D, T : ParseTool, FN : FnOnce(View<'a, F>) -> D>(self, tool : T, f : FN) -> core::ops::ControlFlow<D, Self> {
-        match self.0.clone().match_tool(tool) {
-            Ok(st) => core::ops::ControlFlow::Break(f(st)),
-            Err(_) => core::ops::ControlFlow::Continue(self),
-        }
+        self.0.clone().match_tool(tool).map_or_else(
+            |_| core::ops::ControlFlow::Continue(self),
+            |st|  core::ops::ControlFlow::Break(f(st)),
+        )
     }
     /// Execute provided function and consume the `MatchSwitch` object.
     ///
@@ -257,6 +260,7 @@ impl<'a, F : Clone> MatchSwitch<'a, F>{
         core::ops::ControlFlow::Break(f(self.0))
     }
     /// A convenience wrapper that should work just like the still not stabilized `try` block.
+    #[allow(clippy::missing_panics_doc)]
     pub fn try_block<D, FN : FnOnce(Self) -> core::ops::ControlFlow<D, core::convert::Infallible>>(self, f : FN) -> D {
         f(self).break_value().expect("")
     }
