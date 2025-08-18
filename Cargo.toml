@@ -13,6 +13,7 @@ readme = "README.md"
 [features]
 alloc = []
 nightly-features = []
+std = ["alloc"]
 
 [dependencies]
 thiserror = { version = "2.0.14", default-features = false }

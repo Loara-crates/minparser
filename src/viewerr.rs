@@ -215,6 +215,17 @@ impl<'a, F> View<'a, F> {
     }
 }
 
+#[cfg(any(feature = "std", doc, test))]
+impl View<'static, alloc::string::String> {
+    /// Read the entire file in memory and create a new `View`with it.
+    ///
+    /// The file name is used as the file identifier here.
+    pub fn from_file<P : AsRef<std::path::Path>>(filename : &P) -> std::io::Result<Self> {
+        let file = std::fs::read_to_string(filename)?.leak();
+        Ok(View::new(file, filename.as_ref().as_os_str().to_string_lossy().into_owned()))
+    }
+}
+
 impl<'a, F : Clone> MatchSwitch<'a, F>{
     /// Creates a new `MatchSwitch`.
     #[must_use]

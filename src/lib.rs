@@ -99,8 +99,7 @@
 
 #[cfg(any(feature = "alloc", test, doc))]
 extern crate alloc;
-
-#[cfg(doc)]
+#[cfg(any(feature = "std", test, doc))]
 extern crate std;
 
 pub mod pos;
