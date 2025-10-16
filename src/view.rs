@@ -17,8 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 //! [`View`] and other associated utilities.
-use crate::pos::{Position, NoFile, Posable};
-use crate::tools::{ParseTool, ParseToolData, ToolResult, ToolResultData};
+use crate::pos::{Position, NoFile};
+use crate::atoms::{Atom, Match};
+use crate::atomlist::{LazyRepeatTool};
+use core::ops::ControlFlow;
+use crate::chains::*;
 
 /// A view on a `str` to be parsed.
 ///
@@ -41,36 +44,6 @@ pub struct PosNoMatch<F = NoFile>{
 
 /// [`View`] alias if you don't want to specify a file.
 pub type ViewFile<'a> = View<'a, NoFile>;
-
-impl<F> AsRef<str> for View<'_, F>{
-    fn as_ref(&self) -> &str {
-        self.view
-    }
-}
-
-impl<F> From<core::convert::Infallible> for PosNoMatch<F> {
-    fn from(i : core::convert::Infallible) -> Self {
-        match i {}
-    }
-}
-impl<F> From<Position<F>> for PosNoMatch<F> {
-    fn from(pos : Position<F>) -> Self {
-        Self{pos}
-    }
-}
-
-impl<F : core::fmt::Display> core::fmt::Display for PosNoMatch<F>{
-    fn fmt(&self, fd : &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(fd, "{}: No match", self.pos)
-    }
-}
-impl<F : core::fmt::Debug + core::fmt::Display> core::error::Error for PosNoMatch<F> {}
-
-impl<F> Posable<F> for PosNoMatch<F> {
-    fn get_pos(&self) -> &Position<F>{
-        &self.pos
-    }
-}
 
 impl<'a, F : Default> View<'a, F> {
     /// Creates a new [`View`] object.
@@ -107,7 +80,7 @@ impl<'a, F> View<'a, F> {
     /// Progress the view and its position.
     ///
     /// # Panics
-    /// Panics if `inc` doesn;t lie on UTF-8 code point boundaries.
+    /// Panics if `inc` doesn't lie on UTF-8 code point boundaries.
     pub fn progress(self, inc : usize) -> (Self, &'a str) {
         if inc == 0 {
             (self, "")
@@ -133,63 +106,144 @@ impl<'a, F> View<'a, F> {
             }, pfx)
         }
     }
-    /// Apply the transformation `f` to the view
-    #[allow(clippy::missing_errors_doc)]
-    pub fn match_map<E, FF : FnOnce(Self) -> Result<Self, E>>(self, f : FF) -> Result<Self, E> {
-        f(self)
-    }
-    /// Matches a tool with the view
-    #[allow(clippy::missing_errors_doc)]
-    pub fn match_tool<R : ParseTool>(self, t : R) -> Result<Self, PosNoMatch<F>> {
-        match t.parse(self.view) {
-            ToolResult::Match{len} => Ok(self.progress(len).0),
-            ToolResult::NoMatch => Err(PosNoMatch{pos : self.pos}),
-        }
-    }
-    /// Matches a [`ParseToolData`].
-    #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
-    pub fn match_tool_data<P, R : ParseToolData<'a, P>>(self, t : R, p : P) -> Result<(Self, R::Data), PosNoMatch<F>> {
-        match t.parse(self.view, p) {
-            ToolResultData::Match{len, data} => Ok((self.progress(len).0, data)),
-            ToolResultData::NoMatch => Err(PosNoMatch{pos : self.pos}),
-        }
-    }
-    /// Applies the matching tool and returns the prefix matching such tool
+    /// Matches an atom with the view
     ///
-    /// The [`View`] object returned by [`parse`](ParseTool::parse) method of `t`
-    /// should refer to a suffix of this `View`, which should always be the case whenever `t`
-    /// doesn't introduce foreign views. Otherwise a panic would likely happens.
-    #[allow(clippy::missing_errors_doc)]
-    pub fn match_tool_string<R : ParseTool>(self, t : R) -> Result<(Self, &'a str), PosNoMatch<F>> {
+    /// # Errors
+    /// If a match doesn't happen then the calling view is returned as `Err` unchanged. You can
+    /// then use the [`into_pos`](crate::view::View::into_pos) method to get the actual position of
+    /// the missing match.
+    pub fn match_atom<R : Atom>(self, t : R) -> Result<Self, Self> {
         match t.parse(self.view) {
-            ToolResult::Match{len} => Ok(self.progress(len)),
-            ToolResult::NoMatch => Err(PosNoMatch{pos : self.pos}),
+            Some(Match{len}) => Ok(self.progress(len).0),
+            None => Err(self),
         }
     }
-    /// Parses an object and continue the parsing
+    /// Applies the matching atom and returns the prefix matching such tool
     #[allow(clippy::missing_errors_doc)]
-    pub fn parse_continue<T : crate::parsable::Parsable<'a, F>>(self) -> Result<(T, Self), T::Error> {
-        T::parse(self)
+    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(Self, &'a str), PosNoMatch<F>> {
+        match t.parse(self.view) {
+            Some(Match{len}) => Ok(self.progress(len)),
+            None => Err(PosNoMatch{pos : self.pos}),
+        }
     }
-    /// Parses an object
+    /// Matches an atom with the view
+    ///
+    /// # Errors
+    /// If a match doesn't happen then a new error is created from the string that doesn't match
+    /// the specified tool and the `Position` at which this happened.
+    pub fn match_atom_err<E, R : Atom, FF : FnOnce(&'a str, Position<F>) -> E>(self, t : R, f : FF) -> Result<Self, E> {
+        match t.parse(self.view) {
+            Some(Match{len}) => Ok(self.progress(len).0),
+            None => Err(f(self.view, self.pos)),
+        }
+    }
+    /// Matches a parsing tool
     #[allow(clippy::missing_errors_doc)]
-    pub fn parse<T : crate::parsable::Parsable<'a, F>>(self) -> Result<T, T::Error> {
-        self.parse_continue().map(|i| i.0)
+    pub fn match_tool<T : ParseTool<'a, F>>(self, t : &T) -> Result<Self, T::Error> {
+        t.parse(self)
+    }
+    /// Matches a tool only if another tool matches.
+    #[allow(clippy::missing_errors_doc)]
+    pub fn match_if_matches<PRE : ParseTool<'a, F>, R : ParseTool<'a, F>>(self, pre : PRE, t : R) -> Result<Self, R::Error> where F : Clone {
+        match self.clone().match_tool(&pre) {
+            Ok(next) => next.match_tool(&t),
+            Err(_) => Ok(self),
+        }
     }
 }
 
-/*
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn matching() {
-        let st = "Abba req sey";
-        let vw = ViewFile::new_default(st);
-        assert_eq!(vw.clone().match_tool_string("Abba").unwrap().1, "Abba");
-        assert_eq!(vw.clone().match_any_tool(&["Zx", "Abba r"]).unwrap().1, 1);
-        assert_eq!(vw.clone().match_any_tool(&['A', 'c']).unwrap().1, 0);
-        assert!(vw.match_tool('a').is_err());
+/// Parsing tool trait.
+///
+/// The main difference with the [`Atom`](crate::atoms::Atom) is that `ParseTool` can fail at
+/// multiple positions. If an `Atom` failed to match then the position at which the missing match
+/// happened is always at the start of the matching. Instead, `ParseTool` is more specific because
+/// it can specify where exactly the match failed. Moreover, `ParseTool` has a custom error type
+/// that can store both the position and the string prefix.
+pub trait ParseTool<'a, F> {
+    /// Error type
+    type Error : 'a;
+
+    /// The main parsing algorithm.
+    ///
+    /// # Errors
+    /// If no prefix of `st` satisfies this parsing strategy then `Error` is returned.
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error>;
+}
+
+impl<'a, F, T> Chain<T> for View<'a, F> where T : ParseTool<'a, F>  {
+    type Error = T::Error;
+    
+    fn chain(self, t : &T) -> ControlFlow<T::Error, Self> {
+        match self.match_tool(t) {
+            Ok(s) => ControlFlow::Continue(s),
+            Err(e) => ControlFlow::Break(e),
+        }
     }
 }
-*/
+
+impl<'a, FF, F, S, E> ParseTool<'a, FF> for And<F, S> where F : ParseTool<'a, FF, Error = E>, S : ParseTool<'a, FF, Error = E>, E : 'a {
+    type Error = E;
+
+    fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, Self::Error> {
+        match self.parse_logic(st) {
+            ControlFlow::Break(e) => Err(e),
+            ControlFlow::Continue(v) => Ok(v)
+        }
+    }
+}
+impl<'a, FF, F, S> ParseTool<'a, FF> for Or<F, S> where F : ParseTool<'a, FF>, S : ParseTool<'a, FF>, FF : Clone {
+    type Error = S::Error;
+
+    fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, Self::Error> {
+        match self.parse_logic(st) {
+            ControlFlow::Break(e) => Err(e),
+            ControlFlow::Continue(v) => Ok(v)
+        }
+    }
+}
+
+impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatTool<T, SEP> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a + Default, F : Clone {
+    type Error = E;
+
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
+        match self.parse_logic::<E, _, _>(st, E::default) {
+            ControlFlow::Continue(hh) => Ok(hh.0),
+            ControlFlow::Break(e) => Err(e),
+        }
+    }
+}
+
+impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyTool<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
+    type Error = core::convert::Infallible;
+
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
+        Ok(self.parse_logic(st).0)
+    }
+}
+
+impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeatTool<T, SEP, TERM> where 
+    T : ParseTool<'a, F, Error = E>, 
+    SEP : ParseTool<'a, F, Error = E>, 
+    TERM : ParseTool<'a, F, Error = E>,
+    E : 'a + Default,
+    F : Clone {
+    type Error = E;
+
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
+        match self.parse_logic::<E, _, _>(st, E::default) {
+            ControlFlow::Continue(hh) => Ok(hh.0),
+            ControlFlow::Break(e) => Err(e),
+        }
+    }
+}
+
+/// A wrapper for [`Atom`](crate::atoms::Atom) that implements [`ParseTool`]
+pub struct AtomTool<A>(pub A);
+
+impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom, F : 'a {
+    type Error = View<'a, F>;
+
+    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
+        st.match_atom(&self.0)
+    }
+}

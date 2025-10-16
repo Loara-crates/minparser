@@ -37,7 +37,7 @@
 //! ```
 //! use minparser::prelude::*;
 //! let view = ViewFile::new_default("My string   value");
-//! let (step, mtc) = view.match_tool_string("My string").unwrap();
+//! let (step, mtc) = view.match_atom_string("My string").unwrap();
 //! assert_eq!(mtc, "My string");
 //! assert_eq!(step.get_view(), "   value"); 
 //! //let step = step.match_tool(minparser::utils::WhiteTool).unwrap();   // Use the WhiteTool tool to
@@ -103,20 +103,17 @@ extern crate alloc;
 extern crate std;
 
 pub mod pos;
+pub mod atoms;
+// Generalization of views
+pub mod chains;
+pub mod atomlist;
 pub mod view;
-pub mod tools;
+/*
 pub mod parsable;
 pub mod predicates;
 pub mod utils;
 pub mod toolerr;
 pub mod viewerr;
-
-/// Crate prelude
-pub mod prelude {
-    pub use crate::pos::*;
-    pub use crate::view::*;
-    pub use crate::tools::*;
-}
 
 /// New crate's prelude. In a future release it will become the new default and will replace
 /// [`prelude`] module.
@@ -124,4 +121,14 @@ pub mod prelude_new {
     pub use crate::pos::*;
     pub use crate::viewerr::*;
     pub use crate::toolerr::*;
+}
+*/
+
+/// Crate prelude
+pub mod prelude {
+    pub use crate::pos::*;
+    pub use crate::atoms::*;
+    pub use crate::chains::*;
+    pub use crate::atomlist::*;
+    pub use crate::view::*;
 }
