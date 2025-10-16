@@ -10,15 +10,15 @@ pub(crate) trait Chain<T> : Sized{
 }
 
 /// Matches both the provided atoms, trying `first` before `second`.
-pub struct And<F, S>{
+pub struct Seq<F, S>{
     /// The first atom to be checked
     pub first : F,
     /// The second atom to be checked.
     pub second : S,
 }
 
-impl<F, S> And<F, S> {
-    /// Creates a new `And`.
+impl<F, S> Seq<F, S> {
+    /// Creates a new `Seq`.
     pub fn new(first : F, second : S) -> Self {
         Self{first, second}
     }
@@ -59,29 +59,29 @@ impl<F, S> Or<F, S> {
 /// ```rust
 /// use minparser::prelude::*;
 /// let lt = MatchHelper::from("a a a a b");
-/// assert_eq!(lt.match_atom_string(RepeatTool::new_sep_bounds('a', ' ', 0, 3))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_bounds('a', ' ', 0, 3))
 /// .unwrap().1, "a a a");
-/// assert_eq!(lt.match_atom_string(RepeatTool::new_sep_bounds('a', ' ', 2, 3))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_bounds('a', ' ', 2, 3))
 /// .unwrap().1, "a a a");
-/// assert_eq!(lt.match_atom_string(RepeatTool::new_sep_unbounded('a', ' ', 0))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_unbounded('a', ' ', 0))
 /// .unwrap().1, "a a a a");
-/// assert_eq!(lt.match_atom_string(RepeatTool::new_sep_unbounded('a', ' ', 2))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_unbounded('a', ' ', 2))
 /// .unwrap().1, "a a a a");
-/// assert!(lt.match_atom_string(RepeatTool::new_sep_unbounded('a', ' ', 5))
+/// assert!(lt.match_atom_string(RepeatAtom::new_sep_unbounded('a', ' ', 5))
 /// .is_err());
-/// assert!(lt.match_atom_string(RepeatTool::new_sep_bounds('a', ' ', 2, 1))
+/// assert!(lt.match_atom_string(RepeatAtom::new_sep_bounds('a', ' ', 2, 1))
 /// .is_err());
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct RepeatTool<T, SEP>{
+pub struct RepeatAtom<T, SEP>{
     pub(crate) atom : T,
     pub(crate) sep : SEP,
     pub(crate) min : usize,
     pub(crate) max : Option<usize>,
 }
 
-impl<T, SEP> RepeatTool<T, SEP>{
-    /// Create a new [`RepeatTool`] with specified separator.
+impl<T, SEP> RepeatAtom<T, SEP>{
+    /// Create a new [`RepeatAtom`] with specified separator.
     pub const fn new_sep(atom : T, sep : SEP, min : usize, max : Option<usize>) -> Self {
         Self{
             atom,
@@ -90,21 +90,21 @@ impl<T, SEP> RepeatTool<T, SEP>{
             max,
         }
     }
-    /// Create a new [`RepeatTool`] with specified separator and upper bound
+    /// Create a new [`RepeatAtom`] with specified separator and upper bound
     pub const fn new_sep_bounds(atom : T, sep : SEP, min : usize, max : usize) -> Self {
         Self::new_sep(atom, sep, min, Some(max))
     }
-    /// Create a new [`RepeatTool`] with specified separator without upper bound
+    /// Create a new [`RepeatAtom`] with specified separator without upper bound
     pub const fn new_sep_unbounded(atom : T, sep : SEP, min : usize) -> Self {
         Self::new_sep(atom, sep, min, None)
     }
-    /// Create a new [`RepeatTool`] that matches at least one occurrence
+    /// Create a new [`RepeatAtom`] that matches at least one occurrence
     pub const fn new_any_one(atom : T, sep : SEP) -> Self {
         Self::new_sep(atom, sep, 1, None)
     }
 }
 
-impl<T, SEP> RepeatTool<T, SEP> { 
+impl<T, SEP> RepeatAtom<T, SEP> { 
     pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E>, F : FnOnce() -> E>
         (&self, st : M, min_err : F) -> ControlFlow<E, (M, usize)>{
         if let Some(max) = self.max && max < self.min {
@@ -157,17 +157,17 @@ impl<T, SEP> RepeatTool<T, SEP> {
 
 /// Tool that matches repetitions with separator.
 ///
-/// Like [`RepeatTool`] but without specifying a minimum number of repetitions. Therefore. it will
+/// Like [`RepeatAtom`] but without specifying a minimum number of repetitions. Therefore. it will
 /// always match.
 #[derive(Debug, Clone, Copy)]
-pub struct RepeatAnyTool<T, SEP>{
+pub struct RepeatAnyAtom<T, SEP>{
     pub(crate) atom : T,
     pub(crate) sep : SEP,
     pub(crate) max : Option<usize>,
 }
 
-impl<T, SEP> RepeatAnyTool<T, SEP>{
-    /// Create a new [`RepeatAnyTool`] with specified separator.
+impl<T, SEP> RepeatAnyAtom<T, SEP>{
+    /// Create a new [`RepeatAnyAtom`] with specified separator.
     pub const fn new_sep(atom : T, sep : SEP, max : Option<usize>) -> Self {
         Self{
             atom,
@@ -175,17 +175,17 @@ impl<T, SEP> RepeatAnyTool<T, SEP>{
             max,
         }
     }
-    /// Create a new [`RepeatAnyTool`] with specified separator and upper bound
+    /// Create a new [`RepeatAnyAtom`] with specified separator and upper bound
     pub const fn new_sep_bounds(atom : T, sep : SEP, max : usize) -> Self {
         Self::new_sep(atom, sep, Some(max))
     }
-    /// Create a new [`RepeatAnyTool`] with specified separator without upper bound
+    /// Create a new [`RepeatAnyAtom`] with specified separator without upper bound
     pub const fn new_sep_unbounded(atom : T, sep : SEP) -> Self {
         Self::new_sep(atom, sep, None)
     }
 }
 
-impl<T, SEP> RepeatAnyTool<T, SEP> { 
+impl<T, SEP> RepeatAnyAtom<T, SEP> { 
     pub(crate) fn parse_logic<M : Clone + Chain<T> + Chain<SEP>>(&self, st : M) -> (M, usize){
         let mut helper = st;
         match helper.clone().chain(&self.atom) {

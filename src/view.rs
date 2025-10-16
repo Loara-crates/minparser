@@ -19,7 +19,7 @@
 //! [`View`] and other associated utilities.
 use crate::pos::{Position, NoFile};
 use crate::atoms::{Atom, Match};
-use crate::atomlist::{LazyRepeatTool};
+use crate::atomlist::{LazyRepeatAtom};
 use core::ops::ControlFlow;
 use crate::chains::*;
 
@@ -181,7 +181,7 @@ impl<'a, F, T> Chain<T> for View<'a, F> where T : ParseTool<'a, F>  {
     }
 }
 
-impl<'a, FF, F, S, E> ParseTool<'a, FF> for And<F, S> where F : ParseTool<'a, FF, Error = E>, S : ParseTool<'a, FF, Error = E>, E : 'a {
+impl<'a, FF, F, S, E> ParseTool<'a, FF> for Seq<F, S> where F : ParseTool<'a, FF, Error = E>, S : ParseTool<'a, FF, Error = E>, E : 'a {
     type Error = E;
 
     fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, Self::Error> {
@@ -202,7 +202,7 @@ impl<'a, FF, F, S> ParseTool<'a, FF> for Or<F, S> where F : ParseTool<'a, FF>, S
     }
 }
 
-impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatTool<T, SEP> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a + Default, F : Clone {
+impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatAtom<T, SEP> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a + Default, F : Clone {
     type Error = E;
 
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
@@ -213,7 +213,7 @@ impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatTool<T, SEP> where T : ParseTo
     }
 }
 
-impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyTool<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
+impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyAtom<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
     type Error = core::convert::Infallible;
 
     fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
@@ -221,7 +221,7 @@ impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyTool<T, SEP> where T : ParseTo
     }
 }
 
-impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeatTool<T, SEP, TERM> where 
+impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeatAtom<T, SEP, TERM> where 
     T : ParseTool<'a, F, Error = E>, 
     SEP : ParseTool<'a, F, Error = E>, 
     TERM : ParseTool<'a, F, Error = E>,

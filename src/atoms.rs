@@ -59,7 +59,7 @@ pub trait Atom {
 /// Note: even if the atom always matches the match length may be equal to 0, which sometimes can
 /// be interpreted as a failed match.
 ///
-/// If An object implements this trait, then [`Atom`] should be implemented as follows:
+/// If an object implements this trait, then [`Atom`] should be implemented as follows:
 ///
 /// ```
 /// use minparser::prelude::*;

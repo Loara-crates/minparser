@@ -18,12 +18,12 @@ macro_rules! always_parse {
 /// ```rust
 /// use minparser::prelude::*;
 /// let st = MatchHelper::from("My data ");
-/// st.match_atom("My data ").unwrap().match_atom(EOFTool).unwrap();
+/// st.match_atom("My data ").unwrap().match_atom(EOFChar).unwrap();
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-pub struct EOFTool;
+pub struct EOFChar;
 
-impl Atom for EOFTool{
+impl Atom for EOFChar{
     fn parse(&self, st : &str) -> Option<Match> {
         if st.is_empty() {
             Some(Match{len : 0})
@@ -56,7 +56,7 @@ impl<T> AlwaysAtom for CheckTool<T> where T : AlwaysAtom {
     }
 }
 
-impl<F, S> Atom for And<F, S> where F : Atom, S : Atom {
+impl<F, S> Atom for Seq<F, S> where F : Atom, S : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         match self.parse_logic(MatchHelper::from(st)) {
             ControlFlow::Break(()) => None,
@@ -64,7 +64,7 @@ impl<F, S> Atom for And<F, S> where F : Atom, S : Atom {
         }
     }
 }
-impl<F, S> AlwaysAtom for And<F, S> where F : AlwaysAtom, S : AlwaysAtom {
+impl<F, S> AlwaysAtom for Seq<F, S> where F : AlwaysAtom, S : AlwaysAtom {
     fn parse_always(&self, st : &str) -> Match {
         MatchHelper::from(st)
             .match_always(&self.first)
@@ -110,11 +110,11 @@ impl<T> Atom for CheckInvTool<T> where T : Atom {
 
 /// Matches any single character.
 ///
-/// It is exactly the opposite of [`EOFTool`].
+/// It is exactly the opposite of [`EOFChar`].
 #[derive(Debug, Copy, Clone, Default)]
-pub struct AnyTool;
+pub struct AnyChar;
 
-impl Atom for AnyTool {
+impl Atom for AnyChar {
     fn parse(&self, st : &str) -> Option<Match>{
         st.chars().next().map(|c| Match{len : c.len_utf8()})
     }
@@ -122,8 +122,8 @@ impl Atom for AnyTool {
 
 /// Discards empty strings from a match.
 ///
-/// Some atoms that needs to match an undefined number of other atoms (like [`RepeatTool`] or
-/// [`LazyRepeatTool`]) may enter in an infinite loop if the inner atom matches an empty string `""`. 
+/// Some atoms that needs to match an undefined number of other atoms (like [`RepeatAtom`] or
+/// [`LazyRepeatAtom`]) may enter in an infinite loop if the inner atom matches an empty string `""`. 
 /// In that case indeed there always be a match but the atom does not progress, resulting so in an
 /// endless cycle.
 ///
@@ -154,33 +154,6 @@ impl AlwaysAtom for TrueAtom{
 }
 always_parse!(TrueAtom);
 
-
-// impl<T> RepeatTool<T, TrueAtom>{
-//     /// Create a new [`RepeatTool`] without spaces.
-//     ///
-//     /// # Panics
-//     /// Panic if `max` is strictly lesser than `min`.
-//     pub const fn new(atom : T, min : usize, max : Option<usize>) -> Self {
-//         if let Some(m) = max {
-//             assert!(m >= min, "Max is strictly lesser than min");
-//         }
-//         Self{
-//             atom,
-//             sep : TrueAtom,
-//             min,
-//             max,
-//         }
-//     }
-//     /// Create a new [`RepeatTool`] with specified upper bound
-//     pub const fn new_bounds(atom : T, min : usize, max : usize) -> Self {
-//         Self::new(atom, min, Some(max))
-//     }
-//     /// Create a new [`RepeatTool`] without upper bound
-//     pub const fn new_unbounded(atom : T, min : usize) -> Self {
-//         Self::new(atom, min, None)
-//     }
-// }
-
 impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
     type Error = (); // We do not want to send Self as error
     
@@ -194,15 +167,15 @@ impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
 
 
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> RepeatTool<T, TrueAtom> {
-    RepeatTool::new_sep(atom, TrueAtom, min, Some(max))
+pub const fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> RepeatAtom<T, TrueAtom> {
+    RepeatAtom::new_sep(atom, TrueAtom, min, Some(max))
 }
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_unbounded<T>(atom : T, min : usize) -> RepeatTool<T, TrueAtom> {
-    RepeatTool::new_sep(atom, TrueAtom, min, None)
+pub const fn repeat_unbounded<T>(atom : T, min : usize) -> RepeatAtom<T, TrueAtom> {
+    RepeatAtom::new_sep(atom, TrueAtom, min, None)
 }
 
-impl<T, SEP> Atom for RepeatTool<T, SEP> where T : Atom, SEP : Atom {
+impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
         match self.parse_logic::<(), _, _>(h, || ()) {
@@ -213,22 +186,22 @@ impl<T, SEP> Atom for RepeatTool<T, SEP> where T : Atom, SEP : Atom {
 }
 
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_any_bounds<T>(atom : T, max : usize) -> RepeatAnyTool<T, TrueAtom> {
-    RepeatAnyTool::new_sep(atom, TrueAtom, Some(max))
+pub const fn repeat_any_bounds<T>(atom : T, max : usize) -> RepeatAnyAtom<T, TrueAtom> {
+    RepeatAnyAtom::new_sep(atom, TrueAtom, Some(max))
 }
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAnyTool<T, TrueAtom> {
-    RepeatAnyTool::new_sep(atom, TrueAtom, None)
+pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAnyAtom<T, TrueAtom> {
+    RepeatAnyAtom::new_sep(atom, TrueAtom, None)
 }
 
 
-impl<T, SEP> AlwaysAtom for RepeatAnyTool<T, SEP> where T : Atom, SEP : Atom {
+impl<T, SEP> AlwaysAtom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse_always(&self, st : &str) -> Match {
         let h = MatchHelper::from(st);
         self.parse_logic(h).0.finalize().1
     }
 }
-impl<T, SEP> Atom for RepeatAnyTool<T, SEP> where T : Atom, SEP : Atom {
+impl<T, SEP> Atom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         Some(self.parse_always(st))
     }
@@ -238,11 +211,11 @@ impl<T, SEP> Atom for RepeatAnyTool<T, SEP> where T : Atom, SEP : Atom {
 /// Tool that matches repetitions lazily.
 ///
 /// It matches the least number of `T` atom (sepatared by `SEP`) which are followed by `TERM` atom.
-/// The difference with respect to a [`RepeatTool`] followed by `TERM` is that here repetitions are
-/// evaluated lazily: it interrupts at the first match of `TERM`, whereas `RepeatTool` evaluates
+/// The difference with respect to a [`RepeatAtom`] followed by `TERM` is that here repetitions are
+/// evaluated lazily: it interrupts at the first match of `TERM`, whereas `RepeatAtom` evaluates
 /// repetitions eagerly and so `TERM` is matched only after the repetition ends.
 #[derive(Copy, Clone, Debug)]
-pub struct LazyRepeatTool<T, SEP, TERM>{
+pub struct LazyRepeatAtom<T, SEP, TERM>{
     atom : T,
     sep : SEP,
     term : TERM,
@@ -250,8 +223,8 @@ pub struct LazyRepeatTool<T, SEP, TERM>{
     max : Option<usize>,
 }
 
-impl<T, SEP, TERM> LazyRepeatTool<T, SEP, TERM>{
-    /// Create a new `LazyRepeatTool`.
+impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
+    /// Create a new `LazyRepeatAtom`.
     ///
     /// # Panics
     /// Panic if `max` is strictly lesser than `min`.
@@ -267,17 +240,17 @@ impl<T, SEP, TERM> LazyRepeatTool<T, SEP, TERM>{
             max,
         }
     }
-    /// Create a new `LazyRepeatTool` with specified upper bound.
+    /// Create a new `LazyRepeatAtom` with specified upper bound.
     pub const fn new_bounds(atom : T, sep : SEP, term : TERM, min : usize, max : usize) -> Self {
         Self::new(atom, sep, term, min, Some(max))
     }
-    /// Create a new `LazyRepeatTool` without upper bound.
+    /// Create a new `LazyRepeatAtom` without upper bound.
     pub const fn new_unbounded(atom : T, sep : SEP, term : TERM, min : usize) -> Self {
         Self::new(atom, sep, term, min, None)
     }
 }
 
-impl<T, SEP, TERM> LazyRepeatTool<T, SEP, TERM> {
+impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM> {
     // Second M is the matchwithout including TERM
     pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E> + Chain<TERM, Error = E>, F : FnOnce() -> E>(&self, st : M, min_err : F) -> ControlFlow<E, (M, M, usize)>{
         let mut helper = st;
@@ -351,7 +324,7 @@ impl<T, SEP, TERM> LazyRepeatTool<T, SEP, TERM> {
         }
     }
 }
-impl<T, SEP, TERM> Atom for LazyRepeatTool<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
+impl<T, SEP, TERM> Atom for LazyRepeatAtom<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
         match self.parse_logic::<(), _, _>(h, || ()) {
@@ -364,23 +337,23 @@ impl<T, SEP, TERM> Atom for LazyRepeatTool<T, SEP, TERM> where T : Atom, SEP : A
 
 /// Tool that matches characters which satisfies the provided predicate.
 ///
-/// See also [`PredicateRefTool`].
+/// See also [`PredicateRefAtom`].
 ///
 /// ```rust
 /// use minparser::prelude::*;
 /// let lt = MatchHelper::from("aB1৬");
-/// lt.match_atom(PredicateRefTool::new(char::is_ascii_lowercase)).unwrap()
-/// .match_atom(PredicateRefTool::new(char::is_ascii_uppercase)).unwrap()
-/// .match_atom(PredicateRefTool::new(char::is_ascii_digit)).unwrap()
-/// .match_atom(PredicateTool::new(char::is_numeric)).unwrap();
+/// lt.match_atom(PredicateRefAtom::new(char::is_ascii_lowercase)).unwrap()
+/// .match_atom(PredicateRefAtom::new(char::is_ascii_uppercase)).unwrap()
+/// .match_atom(PredicateRefAtom::new(char::is_ascii_digit)).unwrap()
+/// .match_atom(PredicateAtom::new(char::is_numeric)).unwrap();
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct PredicateTool<P>{
+pub struct PredicateAtom<P>{
     predicate : P,
 }
 
-impl<P : Fn(char) -> bool> PredicateTool<P> {
-    /// Create a new [`PredicateTool`] from a predicate.
+impl<P : Fn(char) -> bool> PredicateAtom<P> {
+    /// Create a new [`PredicateAtom`] from a predicate.
     pub const fn new(predicate : P) -> Self {
         Self{
             predicate,
@@ -388,12 +361,12 @@ impl<P : Fn(char) -> bool> PredicateTool<P> {
     }
     /// Creates an atom that matches zero or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_zero_or_more(predicate : P) -> RepeatAnyTool<Self, TrueAtom> {
+    pub const fn new_zero_or_more(predicate : P) -> RepeatAnyAtom<Self, TrueAtom> {
         repeat_any_unbounded(Self::new(predicate))
     }
     /// Creates an atom that matches one or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_one_or_more(predicate : P) -> RepeatTool<Self, TrueAtom> {
+    pub const fn new_one_or_more(predicate : P) -> RepeatAtom<Self, TrueAtom> {
         repeat_unbounded(Self::new(predicate), 1)
     }
     /// Tests if the first character satisfy the predicate, and in the affirmative case the matched
@@ -410,7 +383,7 @@ impl<P : Fn(char) -> bool> PredicateTool<P> {
     }
 }
 
-impl<P : Fn(char) -> bool> Atom for PredicateTool<P>{
+impl<P : Fn(char) -> bool> Atom for PredicateAtom<P>{
     fn parse(&self, st : &str) -> Option<Match>{
         self.parse_char(st).map(|(_, len)| Match{len})
     }
@@ -419,23 +392,23 @@ impl<P : Fn(char) -> bool> Atom for PredicateTool<P>{
 
 /// Tool that matches characters which satisfies the provided ref predicate.
 ///
-/// See also [`PredicateTool`].
+/// See also [`PredicateAtom`].
 ///
 /// ```rust
 /// use minparser::prelude::*;
 /// let lt = MatchHelper::from("aB1৬");
-/// lt.match_atom(PredicateRefTool::new(char::is_ascii_lowercase)).unwrap()
-/// .match_atom(PredicateRefTool::new(char::is_ascii_uppercase)).unwrap()
-/// .match_atom(PredicateRefTool::new(char::is_ascii_digit)).unwrap()
-/// .match_atom(PredicateTool::new(char::is_numeric)).unwrap();
+/// lt.match_atom(PredicateRefAtom::new(char::is_ascii_lowercase)).unwrap()
+/// .match_atom(PredicateRefAtom::new(char::is_ascii_uppercase)).unwrap()
+/// .match_atom(PredicateRefAtom::new(char::is_ascii_digit)).unwrap()
+/// .match_atom(PredicateAtom::new(char::is_numeric)).unwrap();
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct PredicateRefTool<P>{
+pub struct PredicateRefAtom<P>{
     predicate : P,
 }
 
-impl<P : Fn(&char) -> bool> PredicateRefTool<P> {
-    /// Create a new [`PredicateRefTool`] from a predicate.
+impl<P : Fn(&char) -> bool> PredicateRefAtom<P> {
+    /// Create a new [`PredicateRefAtom`] from a predicate.
     pub const fn new(predicate : P) -> Self {
         Self{
             predicate,
@@ -443,12 +416,12 @@ impl<P : Fn(&char) -> bool> PredicateRefTool<P> {
     }
     /// Creates an atom that matches zero or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_zero_or_more(predicate : P) -> RepeatAnyTool<Self, TrueAtom> {
+    pub const fn new_zero_or_more(predicate : P) -> RepeatAnyAtom<Self, TrueAtom> {
         repeat_any_unbounded(Self::new(predicate))
     }
     /// Creates an atom that matches one or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_one_or_more(predicate : P) -> RepeatTool<Self, TrueAtom> {
+    pub const fn new_one_or_more(predicate : P) -> RepeatAtom<Self, TrueAtom> {
         repeat_unbounded(Self::new(predicate), 1)
     }
     /// Tests if the first character satisfy the predicate, and in the affirmative case the matched
@@ -465,7 +438,7 @@ impl<P : Fn(&char) -> bool> PredicateRefTool<P> {
     }
 }
 
-impl<P : Fn(&char) -> bool> Atom for PredicateRefTool<P>{
+impl<P : Fn(&char) -> bool> Atom for PredicateRefAtom<P>{
     fn parse(&self, st : &str) -> Option<Match> {
         self.parse_char(st).map(|(_, len)| Match{len})
     }
@@ -480,9 +453,9 @@ mod tests {
     fn atoms() {
         let vw = MatchHelper::from("€à/a req sey");
         vw.clone().match_atom(TrueAtom).unwrap();
-        assert!(vw.clone().match_atom(EOFTool).is_err());
+        assert!(vw.clone().match_atom(EOFChar).is_err());
         assert_eq!(vw.clone().match_atom_string(&["Zx", "€à/a re"]).unwrap().1, "€à/a re");
-        assert_eq!(vw.clone().match_atom_string(Or::new(EOFTool, ["€à", "€"])).unwrap().1, "€à");
+        assert_eq!(vw.clone().match_atom_string(Or::new(EOFChar, ["€à", "€"])).unwrap().1, "€à");
         assert!(vw.clone().match_atom(Or::new('r', "€àb")).is_err());
     }
 }

@@ -17,24 +17,44 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 //! Other useful parsing tools.
-use crate::tools::{ParseTool, PredicateTool, RepeatTool, SeqTool, ToolResult};
+use crate::atoms::{Atom, Match};
+use crate::atomlist::{TrueAtom, PredicateAtom};
+use crate::chains::*;
 
 /// Tool that matches the newline characters sequences `\n` and `\r\n`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub struct NewlineTool;
+pub struct Newline;
 
-impl ParseTool for NewlineTool {
-    fn parse(&self, st : &str) -> ToolResult{
-        SeqTool((RepeatTool::new_bounds('\r', 0, 1), '\n')).parse(st)
+impl Atom for Newline {
+    fn parse(&self, st : &str) -> Option<Match>{
+        Seq{
+            first : RepeatAnyAtom::new_sep_bounds('\r', TrueAtom, 1),
+            second :'\n'
+        }.parse(st)
     }
 }
 
 /// Tool that matches any sequence of Unicode whitespaces.
 #[derive(Debug, Copy, Clone)]
-pub struct WhiteTool;
+pub struct WhiteSP;
 
-impl ParseTool for WhiteTool{
-    fn parse(&self, st : &str) -> ToolResult {
-        PredicateTool::new_zero_or_more(char::is_whitespace).parse(st)
+impl Atom for WhiteSP{
+    fn parse(&self, st : &str) -> Option<Match> {
+        RepeatAnyAtom::new_sep_unbounded(PredicateAtom::new(char::is_whitespace), TrueAtom).parse(st)
     }
 }
+
+/// Tool to retrieve a sequence of consecutive (Unicode) letters and numbers, which the first
+/// character is not a number
+#[derive(Debug, Copy, Clone)]
+pub struct Ident;
+
+impl Atom for Ident{
+    fn parse(&self, st : &str) -> Option<Match> {
+        Seq{
+            first : PredicateAtom::new(char::is_alphabetic),
+            second : PredicateAtom::new(char::is_alphanumeric)
+        }.parse(st)
+    }
+}
+

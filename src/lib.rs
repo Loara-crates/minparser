@@ -108,21 +108,8 @@ pub mod atoms;
 pub mod chains;
 pub mod atomlist;
 pub mod view;
-/*
-pub mod parsable;
 pub mod predicates;
 pub mod utils;
-pub mod toolerr;
-pub mod viewerr;
-
-/// New crate's prelude. In a future release it will become the new default and will replace
-/// [`prelude`] module.
-pub mod prelude_new {
-    pub use crate::pos::*;
-    pub use crate::viewerr::*;
-    pub use crate::toolerr::*;
-}
-*/
 
 /// Crate prelude
 pub mod prelude {
