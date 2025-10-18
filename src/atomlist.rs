@@ -169,11 +169,11 @@ impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
 
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> RepeatAtom<T, TrueAtom> {
-    RepeatAtom::new_sep(atom, TrueAtom, min, Some(max))
+    RepeatAtom::new(atom, TrueAtom, min, Some(max))
 }
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_unbounded<T>(atom : T, min : usize) -> RepeatAtom<T, TrueAtom> {
-    RepeatAtom::new_sep(atom, TrueAtom, min, None)
+    RepeatAtom::new(atom, TrueAtom, min, None)
 }
 
 impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
@@ -188,11 +188,11 @@ impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
 
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_any_bounds<T>(atom : T, max : usize) -> RepeatAnyAtom<T, TrueAtom> {
-    RepeatAnyAtom::new_sep(atom, TrueAtom, Some(max))
+    RepeatAnyAtom::new(atom, TrueAtom, Some(max))
 }
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAnyAtom<T, TrueAtom> {
-    RepeatAnyAtom::new_sep(atom, TrueAtom, None)
+    RepeatAnyAtom::new(atom, TrueAtom, None)
 }
 
 

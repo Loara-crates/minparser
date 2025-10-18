@@ -18,8 +18,9 @@
  */
 //! [`View`] and other associated utilities.
 use crate::pos::{Position, NoFile};
-use crate::atoms::{Atom, Match};
+use crate::atoms::{Atom, Match, AlwaysAtom};
 use core::ops::ControlFlow;
+use core::marker::PhantomData;
 use crate::chains::*;
 
 /// A view on a `str` to be parsed.
@@ -31,14 +32,6 @@ use crate::chains::*;
 pub struct View<'a, F = NoFile>{
     pub(crate) view : &'a str,
     pub(crate) pos : Position<F>,
-}
-
-/// The standard error type for a missing match at specified position.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[non_exhaustive]
-pub struct PosNoMatch<F = NoFile>{
-    /// Error position.
-    pub pos : Position<F>,
 }
 
 /// [`View`] alias if you don't want to specify a file.
@@ -80,9 +73,9 @@ impl<'a, F> View<'a, F> {
     ///
     /// # Panics
     /// Panics if `inc` doesn't lie on UTF-8 code point boundaries.
-    pub fn progress(self, inc : usize) -> (Self, &'a str) {
+    pub fn progress(self, inc : usize) -> (&'a str, Self) {
         if inc == 0 {
-            (self, "")
+            ("", self)
         }
         else{
             let (pfx, sfx) = self.view.split_at(inc);
@@ -99,10 +92,10 @@ impl<'a, F> View<'a, F> {
                 r += nls;
             }
             c += u32::try_from(elem.len()).unwrap();
-            (Self{
+            (pfx, Self{
                 pos : Position::new_file(file, r, c),
                 view : sfx,
-            }, pfx)
+            })
         }
     }
     /// Matches an atom with the view
@@ -113,13 +106,13 @@ impl<'a, F> View<'a, F> {
     /// the missing match.
     pub fn match_atom<R : Atom>(self, t : R) -> Result<Self, Self> {
         match t.parse(self.view) {
-            Some(Match{len}) => Ok(self.progress(len).0),
+            Some(Match{len}) => Ok(self.progress(len).1),
             None => Err(self),
         }
     }
     /// Applies the matching atom and returns the prefix matching such tool
     #[allow(clippy::missing_errors_doc)]
-    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(Self, &'a str), Self> {
+    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(&'a str, Self), Self> {
         match t.parse(self.view) {
             Some(Match{len}) => Ok(self.progress(len)),
             None => Err(self),
@@ -130,11 +123,31 @@ impl<'a, F> View<'a, F> {
     /// # Errors
     /// If a match doesn't happen then a new error is created from the string that doesn't match
     /// the specified tool and the `Position` at which this happened.
-    pub fn match_atom_err<E, R : Atom, FF : FnOnce(&'a str, Position<F>) -> E>(self, t : R, f : FF) -> Result<Self, E> {
+    pub fn match_atom_err<E, R : Atom, FF : FnOnce(Self) -> E>(self, t : R, f : FF) -> Result<Self, E> {
         match t.parse(self.view) {
-            Some(Match{len}) => Ok(self.progress(len).0),
-            None => Err(f(self.view, self.pos)),
+            Some(Match{len}) => Ok(self.progress(len).1),
+            None => Err(f(self)),
         }
+    }
+    /// Matches an infallible atom with the view.
+    ///
+    /// # Errors
+    /// If a match doesn't happen then the calling view is returned as `Err` unchanged. You can
+    /// then use the [`into_pos`](crate::view::View::into_pos) method to get the actual position of
+    /// the missing match.
+    pub fn match_always<R : AlwaysAtom>(self, t : R) -> Self {
+        let Match{len} = t.parse_always(self.view);
+        self.progress(len).1
+    }
+    /// Matches an infallible atom with the view and returns the matching string.
+    ///
+    /// # Errors
+    /// If a match doesn't happen then the calling view is returned as `Err` unchanged. You can
+    /// then use the [`into_pos`](crate::view::View::into_pos) method to get the actual position of
+    /// the missing match.
+    pub fn match_always_string<R : AlwaysAtom>(self, t : R) -> (&'a str, Self) {
+        let Match{len} = t.parse_always(self.view);
+        self.progress(len)
     }
     /// Matches a parsing tool
     #[allow(clippy::missing_errors_doc)]
@@ -174,6 +187,49 @@ pub trait ParseTool<'a, F> {
     /// # Errors
     /// If no prefix of `st` satisfies this parsing strategy then `Error` is returned.
     fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>;
+
+    /// Apply a function to both `Data` and `Error`.
+    fn map_both<D, E, FD, FE>(self, fd : FD, fe : FE) -> MapTool<Self, D, E, FD, FE> where Self : Sized{
+        MapTool(self, fd, fe, PhantomData, PhantomData)
+    }
+    /// Apply a function to `Data`.
+    fn map<D, FD>(self, fd : FD) -> MapTool<Self, D, Self::Error, FD, fn(Self::Error) -> Self::Error> where Self : Sized{
+        MapTool(self, fd, |e| e, PhantomData, PhantomData)
+    }
+    /// Apply a function to `Error`.
+    fn map_err<E, FE>(self, fe : FE) -> MapTool<Self, Self::Data, E, fn(Self::Data) -> Self::Data, FE> where Self : Sized{
+        MapTool(self, |d| d, fe, PhantomData, PhantomData)
+    }
+}
+
+/// Tool wrapper that modify both `Data` and `Error`.
+pub struct MapTool<T, D, E, FD, FE>(T, FD, FE, PhantomData<fn() -> D>, PhantomData<fn() -> E>);
+
+impl<'a, F, T, D, E, FD, FE> ParseTool<'a, F> for MapTool<T, D, E, FD, FE> where
+    T : ParseTool<'a, F>,
+    D : 'a,
+    E : 'a,
+    FD : Fn(T::Data) -> D,
+    FE : Fn(T::Error) -> E
+{
+    type Error = E;
+    type Data = D;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        self.0.parse(st).map(|(d, st)| ( (&self.1)(d), st )).map_err(|e| (&self.2)(e) )
+    }
+}
+
+impl<'a, F> ParseTool<'a, F> for crate::atomlist::AnyChar where F : 'a {
+    type Data = char;
+    type Error = View<'a, F>;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>{
+        match st.view.chars().next() {
+            None => Err(st),
+            Some(c) => Ok((c, st.progress(c.utf8_len().1))),
+        }
+    }
 }
 
 impl<'a, F, T> Chain<T> for View<'a, F> where T : ParseTool<'a, F>  {
@@ -292,7 +348,7 @@ impl<'a, F, T, SEP, TERM, E, I> ParseTool<'a, F> for WithCont<LazyRepeatAtom<T, 
     }
 }
 
-/// A wrapper for [`Atom`] that implements [`ParseTool`]
+/// A wrapper for [`Atom`] that implements [`ParseTool`].
 pub struct AtomTool<A>(pub A);
 
 impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom, F : 'a {
@@ -300,7 +356,17 @@ impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom, F : 'a {
     type Data = &'a str;
 
     fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
-        let (b, a) = st.match_atom_string(&self.0)?;
-        Ok((a, b))
+        st.match_atom_string(&self.0)
+    }
+}
+/// A wrapper for [`AlwaysAtom`] that implements [`ParseTool`].
+pub struct AlwAtomTool<A>(pub A);
+
+impl<'a, F, A> ParseTool<'a, F> for AlwAtomTool<A> where A : AlwaysAtom, F : 'a {
+    type Error = core::convert::Infallible;
+    type Data = &'a str;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        Ok(st.match_always_string(&self.0))
     }
 }

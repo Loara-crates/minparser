@@ -21,6 +21,9 @@ pub(crate) trait Chain<T> : Sized{
 }
 
 /// Trait that generalize a container with an `insert` method.
+///
+/// This trait is already implemented for [`Vec`](alloc::vec::Vec) and
+/// [`String`](alloc::string::String) when the `alloc` feature is used.
 pub trait Insert<D> {
     /// Creates an empty container
     fn new() -> Self;
@@ -50,6 +53,16 @@ impl<D> Insert<D> for alloc::vec::Vec<D>{
     }
 
     fn insert(&mut self, data : D){
+        self.push(data);
+    }
+}
+#[cfg(feature = "alloc")]
+impl Insert<char> for alloc::string::String{
+    fn new() -> Self {
+        alloc::string::String::new()
+    }
+
+    fn insert(&mut self, data : char){
         self.push(data);
     }
 }
@@ -105,17 +118,17 @@ impl<F, S> Or<F, S> {
 /// ```rust
 /// use minparser::prelude::*;
 /// let lt = MatchHelper::from("a a a a b");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_bounds('a', ' ', 0, 3))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_bounds('a', ' ', 0, 3))
 /// .unwrap().1, "a a a");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_bounds('a', ' ', 2, 3))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_bounds('a', ' ', 2, 3))
 /// .unwrap().1, "a a a");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_unbounded('a', ' ', 0))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_unbounded('a', ' ', 0))
 /// .unwrap().1, "a a a a");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_sep_unbounded('a', ' ', 2))
+/// assert_eq!(lt.match_atom_string(RepeatAtom::new_unbounded('a', ' ', 2))
 /// .unwrap().1, "a a a a");
-/// assert!(lt.match_atom_string(RepeatAtom::new_sep_unbounded('a', ' ', 5))
+/// assert!(lt.match_atom_string(RepeatAtom::new_unbounded('a', ' ', 5))
 /// .is_err());
-/// assert!(lt.match_atom_string(RepeatAtom::new_sep_bounds('a', ' ', 2, 1))
+/// assert!(lt.match_atom_string(RepeatAtom::new_bounds('a', ' ', 2, 1))
 /// .is_err());
 /// ```
 #[derive(Debug, Clone, Copy)]
@@ -128,7 +141,7 @@ pub struct RepeatAtom<T, SEP>{
 
 impl<T, SEP> RepeatAtom<T, SEP>{
     /// Create a new [`RepeatAtom`] with specified separator.
-    pub const fn new_sep(atom : T, sep : SEP, min : usize, max : Option<usize>) -> Self {
+    pub const fn new(atom : T, sep : SEP, min : usize, max : Option<usize>) -> Self {
         Self{
             atom,
             sep,
@@ -137,19 +150,19 @@ impl<T, SEP> RepeatAtom<T, SEP>{
         }
     }
     /// Create a new [`RepeatAtom`] with specified separator and upper bound
-    pub const fn new_sep_bounds(atom : T, sep : SEP, min : usize, max : usize) -> Self {
-        Self::new_sep(atom, sep, min, Some(max))
+    pub const fn new_bounds(atom : T, sep : SEP, min : usize, max : usize) -> Self {
+        Self::new(atom, sep, min, Some(max))
     }
     /// Create a new [`RepeatAtom`] with specified separator without upper bound
-    pub const fn new_sep_unbounded(atom : T, sep : SEP, min : usize) -> Self {
-        Self::new_sep(atom, sep, min, None)
+    pub const fn new_unbounded(atom : T, sep : SEP, min : usize) -> Self {
+        Self::new(atom, sep, min, None)
     }
     /// Create a new [`RepeatAtom`] that matches at least one occurrence
     pub const fn new_any_one(atom : T, sep : SEP) -> Self {
-        Self::new_sep(atom, sep, 1, None)
+        Self::new(atom, sep, 1, None)
     }
     /// Wraps it in a [`WithCont`].
-    pub const fn wraps<I>(self) -> WithCont<Self, I> {
+    pub const fn wrap<I>(self) -> WithCont<Self, I> {
         WithCont(self, PhantomData)
     }
 }
@@ -221,7 +234,7 @@ pub struct RepeatAnyAtom<T, SEP>{
 
 impl<T, SEP> RepeatAnyAtom<T, SEP>{
     /// Create a new [`RepeatAnyAtom`] with specified separator.
-    pub const fn new_sep(atom : T, sep : SEP, max : Option<usize>) -> Self {
+    pub const fn new(atom : T, sep : SEP, max : Option<usize>) -> Self {
         Self{
             atom,
             sep,
@@ -229,15 +242,15 @@ impl<T, SEP> RepeatAnyAtom<T, SEP>{
         }
     }
     /// Create a new [`RepeatAnyAtom`] with specified separator and upper bound
-    pub const fn new_sep_bounds(atom : T, sep : SEP, max : usize) -> Self {
-        Self::new_sep(atom, sep, Some(max))
+    pub const fn new_bounds(atom : T, sep : SEP, max : usize) -> Self {
+        Self::new(atom, sep, Some(max))
     }
     /// Create a new [`RepeatAnyAtom`] with specified separator without upper bound
-    pub const fn new_sep_unbounded(atom : T, sep : SEP) -> Self {
-        Self::new_sep(atom, sep, None)
+    pub const fn new_unbounded(atom : T, sep : SEP) -> Self {
+        Self::new(atom, sep, None)
     }
     /// Wraps it in a [`WithCont`].
-    pub const fn wraps<I>(self) -> WithCont<Self, I> {
+    pub const fn wrap<I>(self) -> WithCont<Self, I> {
         WithCont(self, PhantomData)
     }
 }
@@ -319,7 +332,7 @@ impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
         Self::new(atom, sep, term, min, None)
     }
     /// Wraps it in a [`WithCont`].
-    pub const fn wraps<I>(self) -> WithCont<Self, I> {
+    pub const fn wrap<I>(self) -> WithCont<Self, I> {
         WithCont(self, PhantomData)
     }
 }
@@ -401,11 +414,10 @@ impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM> {
 /// Wrapper for [`RepeatAtom`], [`RepeatAnyAtom`] and [`LazyRepeatAtom`] that allows you to specify
 /// the container in which store retrieved data.
 #[derive(Debug, Copy, Clone)]
-pub struct WithCont<W, I>(pub W, PhantomData<I>);
+pub struct WithCont<W, I>(pub(crate) W, PhantomData<I>);
 
-impl<W, I> WithCont<W, I> {
-    /// Wrapps a [`RepeatAtom`], [`RepeatAnyAtom`] or [`LazyRepeatAtom`].
-    pub fn new(wrap : W) -> Self {
-        Self(wrap, PhantomData)
+impl<W, I> AsRef<W> for WithCont<W, I> {
+    fn as_ref(&self) -> &W {
+        &self.0
     }
 }

@@ -53,6 +53,16 @@ pub trait Atom {
     fn as_dyn(&self) -> &dyn Atom where Self : Sized {
         self
     }
+
+    /// Converts this atom into a [`ParseTool`](crate::view::ParseTool).
+    ///
+    /// The generated tool will always return the matched string as data, and the
+    /// [`View`](crate::view::View) pointing at the beginning of the string in case of a failed
+    /// match. More information can be found at the documentation of
+    /// [`AtomTool`](crate::view::AtomTool);
+    fn into_tool(self) -> crate::view::AtomTool<Self> where Self : Sized{
+        crate::view::AtomTool(self)
+    }
 }
 /// A atom that always matches.
 ///
@@ -101,9 +111,9 @@ impl<'a> MatchHelper<'a> {
     ///
     /// # Panics
     /// Panics if `inc` doesn;t lie on UTF-8 code point boundaries.
-    fn progress(self, inc : Match) -> (Self, &'a str) { 
+    fn progress(self, inc : Match) -> (&'a str, Self) { 
         let (pfx, sfx) = self.st.split_at(inc.len);
-        (Self{st : sfx, prefix : self.prefix.append(inc)}, pfx)
+        (pfx, Self{st : sfx, prefix : self.prefix.append(inc)})
     }
     /// Matches an atom with the view.
     ///
@@ -112,23 +122,23 @@ impl<'a> MatchHelper<'a> {
     /// # Errors
     /// If a match doesn't happen then the calling view is returned as `Err` unchanged 
     pub fn match_atom<R : Atom>(self, t : R) -> Result<Self, Self> {
-        t.parse(self.st).map(|inc| self.progress(inc).0)
+        t.parse(self.st).map(|inc| self.progress(inc).1)
             .ok_or(self)
     }
     /// Matches an atom with the view and returns the matching prefix.
     ///
     /// # Errors
     /// If a match doesn't happen then the calling view is returned as `Err` unchanged 
-    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(Self, &'a str), Self> {
+    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(&'a str, Self), Self> {
         t.parse(self.st).map(|inc| self.progress(inc))
             .ok_or(self)
     }
     /// Matches an [`AlwaysAtom`] with the view.
     pub fn match_always<R : AlwaysAtom>(self, t : R) -> Self {
-        self.progress(t.parse_always(self.st)).0
+        self.progress(t.parse_always(self.st)).1
     }
     /// Matches an [`AlwaysAtom`] and returns the matched prefix.
-    pub fn match_always_string<R : AlwaysAtom>(self, t : R) -> (Self, &'a str) {
+    pub fn match_always_string<R : AlwaysAtom>(self, t : R) -> (&'a str, Self) {
         self.progress(t.parse_always(self.st))
     }
     /// Finalize the helper, returning the matched prefix length and the remaining unparsed string.
