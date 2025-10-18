@@ -1,12 +1,57 @@
 //! Items that can be used both as [`Atom`](crate::atoms::Atom) and as
 //! [`ParseTool`](crate::view::ParseTool).
 use core::ops::ControlFlow;
+use core::marker::PhantomData;
 
 // Associate trait that abstract both View and MatchHelper
 pub(crate) trait Chain<T> : Sized{
     type Error;
+    type Data;
 
-    fn chain(self, t : &T) -> ControlFlow<Self::Error, Self>;
+    fn chain(self, t : &T) -> ControlFlow<Self::Error, (Self::Data, Self)>;
+    fn chain_nodata(self, t : &T) -> ControlFlow<Self::Error, Self>{
+        self.chain(t).map_continue(|i| i.1)
+    }
+    fn chain_append<I : Insert<Self::Data>>(self, t : &T, vec : &mut I) -> ControlFlow<Self::Error, Self> {
+        self.chain(t).map_continue(|(d, m)| {
+            vec.insert(d);
+            m
+        })
+    }
+}
+
+/// Trait that generalize a container with an `insert` method.
+pub trait Insert<D> {
+    /// Creates an empty container
+    fn new() -> Self;
+
+    /// Inserts a new element.
+    fn insert(&mut self, data : D);
+}
+
+/// Implementor of [`Insert`] that only counts the elements without storing them.
+#[derive(Debug, Copy, Clone)]
+pub struct Count(pub usize);
+
+impl<D> Insert<D> for Count{
+    fn new() -> Self {
+        Count(0)
+    }
+
+    fn insert(&mut self, _data : D){
+        self.0 += 1;
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<D> Insert<D> for alloc::vec::Vec<D>{
+    fn new() -> Self {
+        alloc::vec::Vec::new()
+    }
+
+    fn insert(&mut self, data : D){
+        self.push(data);
+    }
 }
 
 /// Matches both the provided atoms, trying `first` before `second`.
@@ -22,10 +67,11 @@ impl<F, S> Seq<F, S> {
     pub fn new(first : F, second : S) -> Self {
         Self{first, second}
     }
-    pub(crate) fn parse_logic<E, M : Chain<F, Error = E> + Chain<S, Error = E> >(&self, m : M) -> ControlFlow<E, M> {
+    pub(crate) fn parse_logic<E, M : Chain<F, Error = E> + Chain<S, Error = E> >(&self, m : M) -> ControlFlow<E, ((<M as Chain<F>>::Data, <M as Chain<S>>::Data), M)> {
         match m.chain(&self.first) {
             ControlFlow::Break(e) => ControlFlow::Break(e),
-            ControlFlow::Continue(mm) => mm.chain(&self.second),
+            ControlFlow::Continue((fd, mm)) => mm.chain(&self.second)
+                .map_continue(|(sd, r)| ((fd, sd), r)),
         }
     }
 }
@@ -45,7 +91,7 @@ impl<F, S> Or<F, S> {
     pub fn new(first : F, second : S) -> Self {
         Self{first, second}
     }
-    pub(crate) fn parse_logic<M : Clone + Chain<F> + Chain<S> >(&self, m : M) -> ControlFlow<<M as Chain<S>>::Error, M> {
+    pub(crate) fn parse_logic<D, M : Clone + Chain<F, Data = D> + Chain<S, Data = D> >(&self, m : M) -> ControlFlow<<M as Chain<S>>::Error, (D, M)> {
         match m.clone().chain(&self.first) {
             ControlFlow::Continue(s) => ControlFlow::Continue(s),
             ControlFlow::Break(_) => m.chain(&self.second),
@@ -102,53 +148,60 @@ impl<T, SEP> RepeatAtom<T, SEP>{
     pub const fn new_any_one(atom : T, sep : SEP) -> Self {
         Self::new_sep(atom, sep, 1, None)
     }
+    /// Wraps it in a [`WithCont`].
+    pub const fn wraps<I>(self) -> WithCont<Self, I> {
+        WithCont(self, PhantomData)
+    }
 }
 
 impl<T, SEP> RepeatAtom<T, SEP> { 
-    pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E>, F : FnOnce() -> E>
-        (&self, st : M, min_err : F) -> ControlFlow<E, (M, usize)>{
+    pub(crate) fn parse_logic<
+            E, 
+            M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E>, 
+            F : FnOnce() -> E, 
+            I : Insert<<M as Chain<T>>::Data>
+        >(&self, st : M, min_err : F) -> ControlFlow<E, (M, I)>{
         if let Some(max) = self.max && max < self.min {
             return ControlFlow::Break(min_err());
         }
         let mut helper = st;
         let mut start = self.min;
+        let mut vec = I::new();
         if self.min > 0 {
-            helper = helper.chain(&self.atom)?;
+            helper = helper.chain_append(&self.atom, &mut vec)?;
             for _ in 1..(self.min) {
-                helper = helper.chain(&self.sep)?.chain(&self.atom)?;
+                helper = helper.chain_nodata(&self.sep)?.chain_append(&self.atom, &mut vec)?;
             }
         }
         else {
-            match helper.clone().chain(&self.atom) {
+            match helper.clone().chain_append(&self.atom, &mut vec) {
                 ControlFlow::Continue(h) => {
                     helper = h;
                     start += 1;
                 }
-                ControlFlow::Break(_) => return ControlFlow::Continue((helper, 0)),
+                ControlFlow::Break(_) => return ControlFlow::Continue((helper, vec)),
             }
         }
         if let Some(max) = self.max {
-            for i in start..max {
-                if let ControlFlow::Continue(hh) = helper.clone().chain(&self.sep)
-                    && let ControlFlow::Continue(h) = hh.chain(&self.atom) {
+            for _i in start..max {
+                if let ControlFlow::Continue(hh) = helper.clone().chain_nodata(&self.sep)
+                    && let ControlFlow::Continue(h) = hh.chain_append(&self.atom, &mut vec) {
                     helper = h;
                 }
                 else {
-                    return ControlFlow::Continue((helper, i));
+                    return ControlFlow::Continue((helper, vec));
                 }
             }
-            return ControlFlow::Continue((helper, max));
+            return ControlFlow::Continue((helper, vec));
         }
         else {
-            let mut i = start;
             loop {
-                if let ControlFlow::Continue(hh) = helper.clone().chain(&self.sep)
-                    && let ControlFlow::Continue(h) = hh.chain(&self.atom) {
+                if let ControlFlow::Continue(hh) = helper.clone().chain_nodata(&self.sep)
+                    && let ControlFlow::Continue(h) = hh.chain_append(&self.atom, &mut vec) {
                     helper = h;
-                    i += 1;
                 }
                 else {
-                    return ControlFlow::Continue((helper, i));
+                    return ControlFlow::Continue((helper, vec));
                 }
             }
         }
@@ -183,41 +236,176 @@ impl<T, SEP> RepeatAnyAtom<T, SEP>{
     pub const fn new_sep_unbounded(atom : T, sep : SEP) -> Self {
         Self::new_sep(atom, sep, None)
     }
+    /// Wraps it in a [`WithCont`].
+    pub const fn wraps<I>(self) -> WithCont<Self, I> {
+        WithCont(self, PhantomData)
+    }
 }
 
 impl<T, SEP> RepeatAnyAtom<T, SEP> { 
-    pub(crate) fn parse_logic<M : Clone + Chain<T> + Chain<SEP>>(&self, st : M) -> (M, usize){
+    pub(crate) fn parse_logic<M : Clone + Chain<T> + Chain<SEP>, I : Insert<<M as Chain<T>>::Data>>(&self, st : M) -> (M, I){
         let mut helper = st;
-        match helper.clone().chain(&self.atom) {
+        let mut vec = I::new();
+        match helper.clone().chain_append(&self.atom, &mut vec) {
             ControlFlow::Continue(h) => {
                 helper = h;
             }
-            ControlFlow::Break(_) => return (helper, 0),
+            ControlFlow::Break(_) => return (helper, vec),
         }
         if let Some(max) = self.max {
-            for i in 1..max {
-                if let ControlFlow::Continue(hh) = helper.clone().chain(&self.sep)
-                    && let ControlFlow::Continue(h) = hh.chain(&self.atom) {
+            for _i in 1..max {
+                if let ControlFlow::Continue(hh) = helper.clone().chain_nodata(&self.sep)
+                    && let ControlFlow::Continue(h) = hh.chain_append(&self.atom, &mut vec) {
                     helper = h;
                 }
                 else {
-                    return (helper, i);
+                    return (helper, vec);
                 }
             }
-            return (helper, max);
+            return (helper, vec);
         }
         else {
-            let mut i = 1;
             loop {
-                if let ControlFlow::Continue(hh) = helper.clone().chain(&self.sep)
-                    && let ControlFlow::Continue(h) = hh.chain(&self.atom) {
+                if let ControlFlow::Continue(hh) = helper.clone().chain_nodata(&self.sep)
+                    && let ControlFlow::Continue(h) = hh.chain_append(&self.atom, &mut vec) {
                     helper = h;
-                    i += 1;
                 }
                 else {
-                    return (helper, i);
+                    return (helper, vec);
                 }
             }
         }
+    }
+}
+
+/// Tool that matches repetitions lazily.
+///
+/// It matches the least number of `T` atom (sepatared by `SEP`) which are followed by `TERM` atom.
+/// The difference with respect to a [`RepeatAtom`] followed by `TERM` is that here repetitions are
+/// evaluated lazily: it interrupts at the first match of `TERM`, whereas `RepeatAtom` evaluates
+/// repetitions eagerly and so `TERM` is matched only after the repetition ends.
+#[derive(Copy, Clone, Debug)]
+pub struct LazyRepeatAtom<T, SEP, TERM>{
+    atom : T,
+    sep : SEP,
+    term : TERM,
+    min : usize,
+    max : Option<usize>,
+}
+
+impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
+    /// Create a new `LazyRepeatAtom`.
+    ///
+    /// # Panics
+    /// Panic if `max` is strictly lesser than `min`.
+    pub const fn new(atom : T, sep : SEP, term : TERM, min : usize, max : Option<usize>) -> Self {
+        if let Some(m) = max {
+            assert!(m >= min, "Max is strictly lesser than min");
+        }
+        Self{
+            atom,
+            sep,
+            term,
+            min,
+            max,
+        }
+    }
+    /// Create a new `LazyRepeatAtom` with specified upper bound.
+    pub const fn new_bounds(atom : T, sep : SEP, term : TERM, min : usize, max : usize) -> Self {
+        Self::new(atom, sep, term, min, Some(max))
+    }
+    /// Create a new `LazyRepeatAtom` without upper bound.
+    pub const fn new_unbounded(atom : T, sep : SEP, term : TERM, min : usize) -> Self {
+        Self::new(atom, sep, term, min, None)
+    }
+    /// Wraps it in a [`WithCont`].
+    pub const fn wraps<I>(self) -> WithCont<Self, I> {
+        WithCont(self, PhantomData)
+    }
+}
+
+impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM> {
+    // Second M is the match without including TERM
+    pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E> + Chain<TERM, Error = E>, F : FnOnce() -> E, I : Insert<<M as Chain<T>>::Data> >(&self, st : M, min_err : F) -> ControlFlow<E, (M, M, I)>{
+        let mut helper = st;
+        if let Some(max) = self.max && max < self.min {
+            return ControlFlow::Break(min_err());
+        }
+        let mut vec = I::new();
+        let mut start = self.min;
+        if self.min > 0 {
+            helper = helper.chain_append(&self.atom, &mut vec)?;
+            for _ in 1..(self.min) {
+                helper = helper.chain_nodata(&self.sep)?.chain_append(&self.atom, &mut vec)?;
+            }
+        }
+        else{
+            match helper.clone().chain_nodata(&self.term) {
+                ControlFlow::Continue(hend) => {
+                    return ControlFlow::Continue((hend, helper, vec));
+                }
+                ControlFlow::Break(e) => {
+                    if let ControlFlow::Continue(h) = helper.chain_append(&self.atom, &mut vec) {
+                        helper = h;
+                        start += 1;
+                    }
+                    else{
+                        return ControlFlow::Break(e);
+                    }
+                }
+            }
+        }
+        if let Some(max) = self.max {
+            for _i in start..max {
+                match helper.clone().chain_nodata(&self.term) {
+                    ControlFlow::Continue(hend) => {
+                        return ControlFlow::Continue((hend, helper, vec));
+                    }
+                    ControlFlow::Break(e) => {
+                        if let ControlFlow::Continue(h1) = helper.chain_nodata(&self.sep)
+                        && let ControlFlow::Continue(h) = h1.chain_append(&self.atom, &mut vec) {
+                            helper = h;
+                        }
+                        else{
+                            return ControlFlow::Break(e);
+                        }
+                    }
+                }
+            }
+            let hend = helper.clone().chain_nodata(&self.term)?;
+            ControlFlow::Continue((hend, helper, vec))
+        }
+        else {
+            loop {
+                loop {
+                    match helper.clone().chain_nodata(&self.term) {
+                        ControlFlow::Continue(hend) => {
+                            return ControlFlow::Continue((hend, helper, vec));
+                        }
+                        ControlFlow::Break(e) => {
+                            if let ControlFlow::Continue(h1) = helper.chain_nodata(&self.sep)
+                            && let ControlFlow::Continue(h) = h1.chain_append(&self.atom, &mut vec) {
+                                helper = h;
+                            }
+                            else{
+                                return ControlFlow::Break(e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Wrapper for [`RepeatAtom`], [`RepeatAnyAtom`] and [`LazyRepeatAtom`] that allows you to specify
+/// the container in which store retrieved data.
+#[derive(Debug, Copy, Clone)]
+pub struct WithCont<W, I>(pub W, PhantomData<I>);
+
+impl<W, I> WithCont<W, I> {
+    /// Wrapps a [`RepeatAtom`], [`RepeatAnyAtom`] or [`LazyRepeatAtom`].
+    pub fn new(wrap : W) -> Self {
+        Self(wrap, PhantomData)
     }
 }

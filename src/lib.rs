@@ -28,10 +28,11 @@
 //! user to easily find it.
 //!
 //! A [``View<'a, F>``](view::View) can be seen as a suffix of a larger string with the position of
-//! its first character. The [``match_tool``](view::View::match_tool) method can be used to match its 
-//! prefix with any object implementing the [``ParseTool``](tools::ParseTool) trait.
+//! its first character. The [``match_tool``](view::View::match_tool) and the [``match_atom``](view::View::match_atom)
+//! methods can be used to match its prefix with any object implementing the [``ParseTool``](view::ParseTool) and the [``Atom``](atoms::Atom)
+//! traits respectively.
 //!
-//! Many useful parsing tools can be found in [`tools`] and [`utils`] modules.
+//! Many useful parsing tools can be found in [`atomlist`] and [`utils`] modules.
 //!
 //! # Usage example
 //! ```
@@ -67,24 +68,21 @@
 //! provided pattern (called here *tool*) and if it matches then it strips away the matched prefix,
 //! or an error if no prefix matches it.
 //!
-//! The [`match_tool_string`](crate::view::View::match_tool_string) also provides you the string
-//! prefix that matches the tool.
-//!
 //! *Tip*: If you want to evaluate the original view after a missing match then you can clone it (which is
 //! possible when `F` implements `Clone`).
 //!
-//! ## Tools
-//! A tool is an object that implements the [``ParseTool``](crate::tools::ParseTool) trait.
-//! These objects incapsulates patterns that a string prefix may or may not satisfy. the
-//! [`tools`] submodule provides many primitive tools which you can use to implement
-//! more sofisticated ones.
+//! ## Atoms and Tools
+//! An atom is an object that implements the [``Atom``](atoms::Atom) trait. Instead, a tool is an object
+//! that implements the [``ParseTool``](view::ParseTool) trait.
+//! Both these objects incapsulates patterns that a string prefix may or may not satisfy. Their
+//! main difference involes missed matches: an `Atom` that doesn't match a string prefix reports
+//! the `Position` of its failure exatly at the beginning of the prefix, whereas a `ParseTool` can
+//! be more precise about where the failure happened. You can see an `Atom` just as an atomic element: it
+//! can only match or not match. A `ParseTool` instead can be viewed as a compound objects which each
+//! element can fail indipendently. 
 //!
-//! ## Parsable objects
-//! The [``Parsable<'a, F>``](crate::parsable::Parsable) traits represents an object that may be
-//! inizialized by parsing a string prefix. Just like `match_tool`, the
-//! [`parse`](crate::view::View::parse) and similar methods in `View` can be used to inizialize
-//! `Parsable` objects.
-//!
+//! Moreover, a `ParseTool` can optionally return additional data other than the matched prefix.
+//! 
 //! # Documented features
 //! A list of features you can optionally enable. None of these are enabled by default:
 //!

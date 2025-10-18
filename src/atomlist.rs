@@ -60,7 +60,7 @@ impl<F, S> Atom for Seq<F, S> where F : Atom, S : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         match self.parse_logic(MatchHelper::from(st)) {
             ControlFlow::Break(()) => None,
-            ControlFlow::Continue(v) => Some(v.finalize().1)
+            ControlFlow::Continue(v) => Some(v.1.finalize().1)
         }
     }
 }
@@ -77,7 +77,7 @@ impl<F, S> Atom for Or<F, S> where F : Atom, S : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         match self.parse_logic(MatchHelper::from(st)) {
             ControlFlow::Break(()) => None,
-            ControlFlow::Continue(v) => Some(v.finalize().1)
+            ControlFlow::Continue(v) => Some(v.1.finalize().1)
         }
     }
 }
@@ -156,10 +156,11 @@ always_parse!(TrueAtom);
 
 impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
     type Error = (); // We do not want to send Self as error
+    type Data = (); // We do not want to send Data
     
-    fn chain(self, t : &T) -> ControlFlow<Self::Error, Self> {
+    fn chain(self, t : &T) -> ControlFlow<Self::Error, (Self::Data, Self)> {
         match self.match_atom(t) {
-            Ok(s) => ControlFlow::Continue(s),
+            Ok(s) => ControlFlow::Continue(((), s)),
             Err(_) => ControlFlow::Break(()),
         }
     }
@@ -178,7 +179,7 @@ pub const fn repeat_unbounded<T>(atom : T, min : usize) -> RepeatAtom<T, TrueAto
 impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
-        match self.parse_logic::<(), _, _>(h, || ()) {
+        match self.parse_logic::<(), _, _, Count>(h, || ()) {
             ControlFlow::Continue(hh) => Some(hh.0.finalize().1),
             ControlFlow::Break(()) => None,
         }
@@ -198,9 +199,11 @@ pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAnyAtom<T, TrueAtom> {
 impl<T, SEP> AlwaysAtom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse_always(&self, st : &str) -> Match {
         let h = MatchHelper::from(st);
-        self.parse_logic(h).0.finalize().1
+        self.parse_logic::<_, Count>(h).0.finalize().1
     }
 }
+
+
 impl<T, SEP> Atom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         Some(self.parse_always(st))
@@ -208,127 +211,11 @@ impl<T, SEP> Atom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
 }
 
 
-/// Tool that matches repetitions lazily.
-///
-/// It matches the least number of `T` atom (sepatared by `SEP`) which are followed by `TERM` atom.
-/// The difference with respect to a [`RepeatAtom`] followed by `TERM` is that here repetitions are
-/// evaluated lazily: it interrupts at the first match of `TERM`, whereas `RepeatAtom` evaluates
-/// repetitions eagerly and so `TERM` is matched only after the repetition ends.
-#[derive(Copy, Clone, Debug)]
-pub struct LazyRepeatAtom<T, SEP, TERM>{
-    atom : T,
-    sep : SEP,
-    term : TERM,
-    min : usize,
-    max : Option<usize>,
-}
-
-impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
-    /// Create a new `LazyRepeatAtom`.
-    ///
-    /// # Panics
-    /// Panic if `max` is strictly lesser than `min`.
-    pub const fn new(atom : T, sep : SEP, term : TERM, min : usize, max : Option<usize>) -> Self {
-        if let Some(m) = max {
-            assert!(m >= min, "Max is strictly lesser than min");
-        }
-        Self{
-            atom,
-            sep,
-            term,
-            min,
-            max,
-        }
-    }
-    /// Create a new `LazyRepeatAtom` with specified upper bound.
-    pub const fn new_bounds(atom : T, sep : SEP, term : TERM, min : usize, max : usize) -> Self {
-        Self::new(atom, sep, term, min, Some(max))
-    }
-    /// Create a new `LazyRepeatAtom` without upper bound.
-    pub const fn new_unbounded(atom : T, sep : SEP, term : TERM, min : usize) -> Self {
-        Self::new(atom, sep, term, min, None)
-    }
-}
-
-impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM> {
-    // Second M is the matchwithout including TERM
-    pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E> + Chain<TERM, Error = E>, F : FnOnce() -> E>(&self, st : M, min_err : F) -> ControlFlow<E, (M, M, usize)>{
-        let mut helper = st;
-        if let Some(max) = self.max && max < self.min {
-            return ControlFlow::Break(min_err());
-        }
-        let mut start = self.min;
-        if self.min > 0 {
-            helper = helper.chain(&self.atom)?;
-            for _ in 1..(self.min) {
-                helper = helper.chain(&self.sep)?.chain(&self.atom)?;
-            }
-        }
-        else{
-            match helper.clone().chain(&self.term) {
-                ControlFlow::Continue(hend) => {
-                    return ControlFlow::Continue((hend, helper, 0));
-                }
-                ControlFlow::Break(e) => {
-                    if let ControlFlow::Continue(h) = helper.chain(&self.atom) {
-                        helper = h;
-                        start += 1;
-                    }
-                    else{
-                        return ControlFlow::Break(e);
-                    }
-                }
-            }
-        }
-        if let Some(max) = self.max {
-            for i in start..max {
-                match helper.clone().chain(&self.term) {
-                    ControlFlow::Continue(hend) => {
-                        return ControlFlow::Continue((hend, helper, i));
-                    }
-                    ControlFlow::Break(e) => {
-                        if let ControlFlow::Continue(h1) = helper.chain(&self.sep)
-                        && let ControlFlow::Continue(h) = h1.chain(&self.atom) {
-                            helper = h;
-                        }
-                        else{
-                            return ControlFlow::Break(e);
-                        }
-                    }
-                }
-            }
-            let hend = helper.clone().chain(&self.term)?;
-            ControlFlow::Continue((hend, helper, max))
-        }
-        else {
-            loop {
-                let mut i = start;
-                loop {
-                    match helper.clone().chain(&self.term) {
-                        ControlFlow::Continue(hend) => {
-                            return ControlFlow::Continue((hend, helper, i));
-                        }
-                        ControlFlow::Break(e) => {
-                            if let ControlFlow::Continue(h1) = helper.chain(&self.sep)
-                            && let ControlFlow::Continue(h) = h1.chain(&self.atom) {
-                                helper = h;
-                                i += 1;
-                            }
-                            else{
-                                return ControlFlow::Break(e);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 impl<T, SEP, TERM> Atom for LazyRepeatAtom<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
-        match self.parse_logic::<(), _, _>(h, || ()) {
-            ControlFlow::Continue(hh) => Some(hh.0.finalize().1),
+        match self.parse_logic::<(), _, _, Count>(h, || ()) {
+            ControlFlow::Continue(hh) => Some(hh.1.finalize().1),
             ControlFlow::Break(()) => None,
         }
     }

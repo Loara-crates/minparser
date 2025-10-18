@@ -158,7 +158,7 @@ impl<'a> MatchHelper<'a> {
             Err(same) => Ok(same),
         }
     }
-    /// Matches an [`AlwaysTool`] only if another atom matches.
+    /// Matches an [`AlwaysAtom`] only if another atom matches.
     ///
     /// This always result in a successful match.
     #[allow(clippy::missing_errors_doc)]

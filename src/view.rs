@@ -19,7 +19,6 @@
 //! [`View`] and other associated utilities.
 use crate::pos::{Position, NoFile};
 use crate::atoms::{Atom, Match};
-use crate::atomlist::{LazyRepeatAtom};
 use core::ops::ControlFlow;
 use crate::chains::*;
 
@@ -120,10 +119,10 @@ impl<'a, F> View<'a, F> {
     }
     /// Applies the matching atom and returns the prefix matching such tool
     #[allow(clippy::missing_errors_doc)]
-    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(Self, &'a str), PosNoMatch<F>> {
+    pub fn match_atom_string<R : Atom>(self, t : R) -> Result<(Self, &'a str), Self> {
         match t.parse(self.view) {
             Some(Match{len}) => Ok(self.progress(len)),
-            None => Err(PosNoMatch{pos : self.pos}),
+            None => Err(self),
         }
     }
     /// Matches an atom with the view
@@ -140,6 +139,11 @@ impl<'a, F> View<'a, F> {
     /// Matches a parsing tool
     #[allow(clippy::missing_errors_doc)]
     pub fn match_tool<T : ParseTool<'a, F>>(self, t : &T) -> Result<Self, T::Error> {
+        t.parse(self).map(|i| i.1)
+    }
+    /// Matches a parsing tool and returns associated data
+    #[allow(clippy::missing_errors_doc)]
+    pub fn match_tool_data<T : ParseTool<'a, F>>(self, t : &T) -> Result<(T::Data, Self), T::Error> {
         t.parse(self)
     }
     /// Matches a tool only if another tool matches.
@@ -154,7 +158,7 @@ impl<'a, F> View<'a, F> {
 
 /// Parsing tool trait.
 ///
-/// The main difference with the [`Atom`](crate::atoms::Atom) is that `ParseTool` can fail at
+/// The main difference with the [`Atom`] is that `ParseTool` can fail at
 /// multiple positions. If an `Atom` failed to match then the position at which the missing match
 /// happened is always at the start of the matching. Instead, `ParseTool` is more specific because
 /// it can specify where exactly the match failed. Moreover, `ParseTool` has a custom error type
@@ -162,19 +166,22 @@ impl<'a, F> View<'a, F> {
 pub trait ParseTool<'a, F> {
     /// Error type
     type Error : 'a;
+    /// Associated data
+    type Data : 'a;
 
     /// The main parsing algorithm.
     ///
     /// # Errors
     /// If no prefix of `st` satisfies this parsing strategy then `Error` is returned.
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error>;
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>;
 }
 
 impl<'a, F, T> Chain<T> for View<'a, F> where T : ParseTool<'a, F>  {
     type Error = T::Error;
+    type Data = T::Data;
     
-    fn chain(self, t : &T) -> ControlFlow<T::Error, Self> {
-        match self.match_tool(t) {
+    fn chain(self, t : &T) -> ControlFlow<T::Error, (T::Data, Self)> {
+        match self.match_tool_data(t) {
             Ok(s) => ControlFlow::Continue(s),
             Err(e) => ControlFlow::Break(e),
         }
@@ -183,18 +190,25 @@ impl<'a, F, T> Chain<T> for View<'a, F> where T : ParseTool<'a, F>  {
 
 impl<'a, FF, F, S, E> ParseTool<'a, FF> for Seq<F, S> where F : ParseTool<'a, FF, Error = E>, S : ParseTool<'a, FF, Error = E>, E : 'a {
     type Error = E;
+    type Data = (F::Data, S::Data);
 
-    fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, Self::Error> {
+    fn parse(&self, st : View<'a, FF>) -> Result<(Self::Data, View<'a, FF>), Self::Error> {
         match self.parse_logic(st) {
             ControlFlow::Break(e) => Err(e),
             ControlFlow::Continue(v) => Ok(v)
         }
     }
 }
-impl<'a, FF, F, S> ParseTool<'a, FF> for Or<F, S> where F : ParseTool<'a, FF>, S : ParseTool<'a, FF>, FF : Clone {
+impl<'a, FF, F, S, D> ParseTool<'a, FF> for Or<F, S> where 
+    F : ParseTool<'a, FF, Data = D>, 
+    S : ParseTool<'a, FF, Data = D>, 
+    FF : Clone,
+    D : 'a {
     type Error = S::Error;
+    type Data = D;
 
-    fn parse(&self, st : View<'a, FF>) -> Result<View<'a, FF>, Self::Error> {
+    fn parse(&self, st : View<'a, FF>) -> Result<(Self::Data, View<'a, FF>), Self::Error> {
+
         match self.parse_logic(st) {
             ControlFlow::Break(e) => Err(e),
             ControlFlow::Continue(v) => Ok(v)
@@ -204,10 +218,22 @@ impl<'a, FF, F, S> ParseTool<'a, FF> for Or<F, S> where F : ParseTool<'a, FF>, S
 
 impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatAtom<T, SEP> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a + Default, F : Clone {
     type Error = E;
+    type Data = usize;
 
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
-        match self.parse_logic::<E, _, _>(st, E::default) {
-            ControlFlow::Continue(hh) => Ok(hh.0),
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        match self.parse_logic::<E, _, _, Count>(st, E::default) {
+            ControlFlow::Continue(hh) => Ok((hh.1.0, hh.0)),
+            ControlFlow::Break(e) => Err(e),
+        }
+    }
+}
+impl<'a, F, T, SEP, E, I> ParseTool<'a, F> for WithCont<RepeatAtom<T, SEP>, I> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a + Default, F : Clone, I : 'a + Insert<T::Data> {
+    type Error = E;
+    type Data = I;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        match self.0.parse_logic::<E, _, _, I>(st, E::default) {
+            ControlFlow::Continue(hh) => Ok((hh.1, hh.0)),
             ControlFlow::Break(e) => Err(e),
         }
     }
@@ -215,9 +241,20 @@ impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatAtom<T, SEP> where T : ParseTo
 
 impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyAtom<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
     type Error = core::convert::Infallible;
+    type Data = usize;
 
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
-        Ok(self.parse_logic(st).0)
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        let r = self.parse_logic::<_, Count>(st);
+        Ok((r.1.0, r.0))
+    }
+}
+impl<'a, F, T, SEP, I> ParseTool<'a, F> for WithCont<RepeatAnyAtom<T, SEP>, I> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone, I : 'a + Insert<T::Data> {
+    type Error = core::convert::Infallible;
+    type Data = I;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        let r = self.0.parse_logic::<_, I>(st);
+        Ok((r.1, r.0))
     }
 }
 
@@ -228,22 +265,42 @@ impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeatAtom<T, SEP, TERM> w
     E : 'a + Default,
     F : Clone {
     type Error = E;
+    type Data = usize;
 
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
-        match self.parse_logic::<E, _, _>(st, E::default) {
-            ControlFlow::Continue(hh) => Ok(hh.0),
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        match self.parse_logic::<E, _, _, Count>(st, E::default) {
+            ControlFlow::Continue(hh) => Ok((hh.2.0, hh.0)),
+            ControlFlow::Break(e) => Err(e),
+        }
+    }
+}
+impl<'a, F, T, SEP, TERM, E, I> ParseTool<'a, F> for WithCont<LazyRepeatAtom<T, SEP, TERM>, I> where 
+    T : ParseTool<'a, F, Error = E>, 
+    SEP : ParseTool<'a, F, Error = E>, 
+    TERM : ParseTool<'a, F, Error = E>,
+    E : 'a + Default,
+    F : Clone,
+    I : 'a + Insert<T::Data> {
+    type Error = E;
+    type Data = I;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        match self.0.parse_logic::<E, _, _, I>(st, E::default) {
+            ControlFlow::Continue(hh) => Ok((hh.2, hh.0)),
             ControlFlow::Break(e) => Err(e),
         }
     }
 }
 
-/// A wrapper for [`Atom`](crate::atoms::Atom) that implements [`ParseTool`]
+/// A wrapper for [`Atom`] that implements [`ParseTool`]
 pub struct AtomTool<A>(pub A);
 
 impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom, F : 'a {
     type Error = View<'a, F>;
+    type Data = &'a str;
 
-    fn parse(&self, st : View<'a, F>) -> Result<View<'a, F>, Self::Error> {
-        st.match_atom(&self.0)
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        let (b, a) = st.match_atom_string(&self.0)?;
+        Ok((a, b))
     }
 }
