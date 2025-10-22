@@ -1,5 +1,4 @@
 //! Some usefult parsing atoms;
-use core::ops::ControlFlow;
 use crate::atoms::{Atom, AlwaysAtom, MatchHelper, Match};
 use crate::chains::*;
 
@@ -59,8 +58,8 @@ impl<T> AlwaysAtom for CheckTool<T> where T : AlwaysAtom {
 impl<F, S> Atom for Seq<F, S> where F : Atom, S : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         match self.parse_logic(MatchHelper::from(st)) {
-            ControlFlow::Break(()) => None,
-            ControlFlow::Continue(v) => Some(v.1.finalize().1)
+            Err(()) => None,
+            Ok(v) => Some(v.1.finalize().1)
         }
     }
 }
@@ -76,8 +75,8 @@ impl<F, S> AlwaysAtom for Seq<F, S> where F : AlwaysAtom, S : AlwaysAtom {
 impl<F, S> Atom for Or<F, S> where F : Atom, S : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         match self.parse_logic(MatchHelper::from(st)) {
-            ControlFlow::Break(()) => None,
-            ControlFlow::Continue(v) => Some(v.1.finalize().1)
+            Err(()) => None,
+            Ok(v) => Some(v.1.finalize().1)
         }
     }
 }
@@ -158,48 +157,50 @@ impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
     type Error = (); // We do not want to send Self as error
     type Data = (); // We do not want to send Data
     
-    fn chain(self, t : &T) -> ControlFlow<Self::Error, (Self::Data, Self)> {
+    fn chain(self, t : &T) -> Result<(Self::Data, Self), Self::Error> {
         match self.match_atom(t) {
-            Ok(s) => ControlFlow::Continue(((), s)),
-            Err(_) => ControlFlow::Break(()),
+            Ok(s) => Ok(((), s)),
+            Err(_) => Err(()),
         }
     }
 }
 
 
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> RepeatAtom<T, TrueAtom> {
-    RepeatAtom::new(atom, TrueAtom, min, Some(max))
+pub fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> RepeatAtom<T, TrueAtom> {
+    RepeatAtom::new_bounds(atom, TrueAtom, min, max)
 }
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_unbounded<T>(atom : T, min : usize) -> RepeatAtom<T, TrueAtom> {
-    RepeatAtom::new(atom, TrueAtom, min, None)
+    RepeatAtom::new_unbounded(atom, TrueAtom, min)
 }
 
 impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
-        match self.parse_logic::<(), _, _, Count>(h, || ()) {
-            ControlFlow::Continue(hh) => Some(hh.0.finalize().1),
-            ControlFlow::Break(()) => None,
+        let mut c = Count::new();
+        match self.parse_logic::<(), _, _>(h, &mut c) {
+            Ok(hh) => Some(hh.finalize().1),
+            Err(_) => None,
         }
     }
 }
 
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_any_bounds<T>(atom : T, max : usize) -> RepeatAnyAtom<T, TrueAtom> {
-    RepeatAnyAtom::new(atom, TrueAtom, Some(max))
+    RepeatAnyAtom::new_bounds(atom, TrueAtom, max)
 }
 /// Repeat atom with the specified limits without a separator
 pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAnyAtom<T, TrueAtom> {
-    RepeatAnyAtom::new(atom, TrueAtom, None)
+    RepeatAnyAtom::new_unbounded(atom, TrueAtom)
 }
 
 
 impl<T, SEP> AlwaysAtom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
     fn parse_always(&self, st : &str) -> Match {
         let h = MatchHelper::from(st);
-        self.parse_logic::<_, Count>(h).0.finalize().1
+        let mut c = Count::new();
+        self.parse_logic(h, &mut c).finalize().1
     }
 }
 
@@ -214,9 +215,10 @@ impl<T, SEP> Atom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
 impl<T, SEP, TERM> Atom for LazyRepeatAtom<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
-        match self.parse_logic::<(), _, _, Count>(h, || ()) {
-            ControlFlow::Continue(hh) => Some(hh.1.finalize().1),
-            ControlFlow::Break(()) => None,
+        let mut c = Count::new();
+        match self.parse_logic::<(), _, _>(h, &mut c) {
+            Ok(hh) => Some(hh.finalize().1),
+            Err(_) => None,
         }
     }
 }
@@ -236,7 +238,7 @@ impl<T, SEP, TERM> Atom for LazyRepeatAtom<T, SEP, TERM> where T : Atom, SEP : A
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct PredicateAtom<P>{
-    predicate : P,
+    pub(crate) predicate : P,
 }
 
 impl<P : Fn(char) -> bool> PredicateAtom<P> {
@@ -291,7 +293,7 @@ impl<P : Fn(char) -> bool> Atom for PredicateAtom<P>{
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct PredicateRefAtom<P>{
-    predicate : P,
+    pub(crate) predicate : P,
 }
 
 impl<P : Fn(&char) -> bool> PredicateRefAtom<P> {
@@ -341,8 +343,8 @@ mod tests {
         let vw = MatchHelper::from("€à/a req sey");
         vw.clone().match_atom(TrueAtom).unwrap();
         assert!(vw.clone().match_atom(EOFChar).is_err());
-        assert_eq!(vw.clone().match_atom_string(&["Zx", "€à/a re"]).unwrap().1, "€à/a re");
-        assert_eq!(vw.clone().match_atom_string(Or::new(EOFChar, ["€à", "€"])).unwrap().1, "€à");
+        assert_eq!(vw.clone().match_atom_string(&["Zx", "€à/a re"]).unwrap().0, "€à/a re");
+        assert_eq!(vw.clone().match_atom_string(Or::new(EOFChar, ["€à", "€"])).unwrap().0, "€à");
         assert!(vw.clone().match_atom(Or::new('r', "€àb")).is_err());
     }
 }

@@ -38,7 +38,7 @@
 //! ```
 //! use minparser::prelude::*;
 //! let view = ViewFile::new_default("My string   value");
-//! let (step, mtc) = view.match_atom_string("My string").unwrap();
+//! let (mtc, step) = view.match_atom_string("My string").unwrap();
 //! assert_eq!(mtc, "My string");
 //! assert_eq!(step.get_view(), "   value"); 
 //! //let step = step.match_tool(minparser::utils::WhiteTool).unwrap();   // Use the WhiteTool tool to
