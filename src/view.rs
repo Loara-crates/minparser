@@ -225,6 +225,21 @@ impl<'a, F, E> ParseTool<'a, F> for TrueTool<E> {
     }
 }
 
+impl<'a, F, T> ParseTool<'a, F> for Check<T> where F : Clone, T : ParseTool<'a, F> {
+    type Data = T::Data;
+    type Error = T::Error;
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>{
+        self.check(st)
+    }
+}
+impl<'a, F, T> ParseTool<'a, F> for CheckInv<T> where F : Clone, T : ParseTool<'a, F> {
+    type Data = T::Error;
+    type Error = T::Data;
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>{
+        self.check(st)
+    }
+}
+
 impl<'a, F> ParseTool<'a, F> for AnyChar {
     type Data = char;
     type Error = View<'a, F>;
@@ -313,7 +328,7 @@ impl<'a, FF, F, S, D> ParseTool<'a, FF> for Or<F, S> where
     }
 }
 
-impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatAtom<T, SEP> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a, F : Clone {
+impl<'a, F, T, SEP, E> ParseTool<'a, F> for Repeat<T, SEP> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a, F : Clone {
     type Error = E;
     type Data = usize;
 
@@ -325,7 +340,7 @@ impl<'a, F, T, SEP, E> ParseTool<'a, F> for RepeatAtom<T, SEP> where T : ParseTo
         }
     }
 }
-impl<'a, F, T, SEP, E, I> ParseTool<'a, F> for WithCont<RepeatAtom<T, SEP>, I> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a, F : Clone, I : Default + Insert<T::Data> {
+impl<'a, F, T, SEP, E, I> ParseTool<'a, F> for WithCont<Repeat<T, SEP>, I> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a, F : Clone, I : Default + Insert<T::Data> {
     type Error = E;
     type Data = I;
 
@@ -338,7 +353,7 @@ impl<'a, F, T, SEP, E, I> ParseTool<'a, F> for WithCont<RepeatAtom<T, SEP>, I> w
     }
 }
 
-impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyAtom<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
+impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAny<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
     type Error = core::convert::Infallible;
     type Data = usize;
 
@@ -348,7 +363,7 @@ impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAnyAtom<T, SEP> where T : ParseTo
         Ok((c.0, r))
     }
 }
-impl<'a, F, T, SEP, I> ParseTool<'a, F> for WithCont<RepeatAnyAtom<T, SEP>, I> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone, I : Default + Insert<T::Data> {
+impl<'a, F, T, SEP, I> ParseTool<'a, F> for WithCont<RepeatAny<T, SEP>, I> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone, I : Default + Insert<T::Data> {
     type Error = core::convert::Infallible;
     type Data = I;
 
@@ -359,7 +374,7 @@ impl<'a, F, T, SEP, I> ParseTool<'a, F> for WithCont<RepeatAnyAtom<T, SEP>, I> w
     }
 }
 
-impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeatAtom<T, SEP, TERM> where 
+impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeat<T, SEP, TERM> where 
     T : ParseTool<'a, F, Error = E>, 
     SEP : ParseTool<'a, F, Error = E>, 
     TERM : ParseTool<'a, F, Error = E>,
@@ -376,7 +391,7 @@ impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeatAtom<T, SEP, TERM> w
         }
     }
 }
-impl<'a, F, T, SEP, TERM, E, I> ParseTool<'a, F> for WithCont<LazyRepeatAtom<T, SEP, TERM>, I> where 
+impl<'a, F, T, SEP, TERM, E, I> ParseTool<'a, F> for WithCont<LazyRepeat<T, SEP, TERM>, I> where 
     T : ParseTool<'a, F, Error = E>, 
     SEP : ParseTool<'a, F, Error = E>, 
     TERM : ParseTool<'a, F, Error = E>,

@@ -109,32 +109,69 @@ impl<F, S> Or<F, S> {
     }
 }
 
+/// Only checks the provided atom, without progressing.
+///
+/// ```rust
+/// use minparser::prelude::*;
+///
+/// MatchHelper::from("a").match_atom(Check('a')).unwrap()
+///     .match_atom(Check::<fn(&char) -> bool>(char::is_ascii)).unwrap();
+/// ```
+#[derive(Debug, Copy, Clone, Default)]
+pub struct Check<T>(pub T);
+
+impl<T> Check<T>{
+    pub(crate) fn check<M : Chain<T> + Clone>(&self, m : M) -> Result<(M::Data, M), M::Error> {
+        let (d, _) = m.clone().chain(&self.0)?;
+        Ok((d, m))
+    }
+}
+
+/// Matches only if the provided atom doesn't match.
+///
+/// ```rust
+/// use minparser::prelude::*;
+///
+/// MatchHelper::from("ab").match_atom(CheckInv('c')).unwrap()
+///     .match_atom(CheckInv('b')).unwrap();
+/// ```
+#[derive(Debug, Copy, Clone, Default)]
+pub struct CheckInv<T>(pub T);
+impl<T> CheckInv<T>{
+    pub(crate) fn check<M : Chain<T> + Clone>(&self, m : M) -> Result<(M::Error, M), M::Data> {
+        match m.clone().chain(&self.0) {
+            Err(e) => Ok((e, m)),
+            Ok((d, _)) => Err(d),
+        }
+    }
+}
+
 /// Tool that matches repetitions with separator requiring a minimum number of repetitions.
 ///
 /// ```rust
 /// use minparser::prelude::*;
 /// let lt = MatchHelper::from("a a a a b");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_bounds('a', ' ', 0, 3))
+/// assert_eq!(lt.match_atom_string(Repeat::new_bounds('a', ' ', 0, 3))
 /// .unwrap().0, "a a a");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_bounds('a', ' ', 2, 3))
+/// assert_eq!(lt.match_atom_string(Repeat::new_bounds('a', ' ', 2, 3))
 /// .unwrap().0, "a a a");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_unbounded('a', ' ', 0))
+/// assert_eq!(lt.match_atom_string(Repeat::new_unbounded('a', ' ', 0))
 /// .unwrap().0, "a a a a");
-/// assert_eq!(lt.match_atom_string(RepeatAtom::new_unbounded('a', ' ', 2))
+/// assert_eq!(lt.match_atom_string(Repeat::new_unbounded('a', ' ', 2))
 /// .unwrap().0, "a a a a");
-/// assert!(lt.match_atom_string(RepeatAtom::new_unbounded('a', ' ', 5))
+/// assert!(lt.match_atom_string(Repeat::new_unbounded('a', ' ', 5))
 /// .is_err());
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct RepeatAtom<T, SEP>{
+pub struct Repeat<T, SEP>{
     pub(crate) atom : T,
     pub(crate) sep : SEP,
     pub(crate) min : usize,
     pub(crate) max : Option<usize>,
 }
 
-impl<T, SEP> RepeatAtom<T, SEP>{
-    /// Create a new [`RepeatAtom`] with specified separator and upper bound.
+impl<T, SEP> Repeat<T, SEP>{
+    /// Create a new [`Repeat`] with specified separator and upper bound.
     ///
     /// # Panics
     /// It panic when `max` is strictly less than `min`, because in such case no matches are
@@ -150,7 +187,7 @@ impl<T, SEP> RepeatAtom<T, SEP>{
             max : Some(max)
         }
     }
-    /// Create a new [`RepeatAtom`] with specified separator without upper bound
+    /// Create a new [`Repeat`] with specified separator without upper bound
     pub const fn new_unbounded(atom : T, sep : SEP, min : usize) -> Self {
         Self {
             atom,
@@ -165,7 +202,7 @@ impl<T, SEP> RepeatAtom<T, SEP>{
     }
 }
 
-impl<T, SEP> RepeatAtom<T, SEP> { 
+impl<T, SEP> Repeat<T, SEP> { 
     pub(crate) fn parse_logic<
             E, 
             M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E>,
@@ -221,17 +258,17 @@ impl<T, SEP> RepeatAtom<T, SEP> {
 
 /// Tool that matches repetitions with separator.
 ///
-/// Like [`RepeatAtom`] but without specifying a minimum number of repetitions. Therefore. it will
+/// Like [`Repeat`] but without specifying a minimum number of repetitions. Therefore. it will
 /// always match.
 #[derive(Debug, Clone, Copy)]
-pub struct RepeatAnyAtom<T, SEP>{
+pub struct RepeatAny<T, SEP>{
     pub(crate) atom : T,
     pub(crate) sep : SEP,
     pub(crate) max : Option<usize>,
 }
 
-impl<T, SEP> RepeatAnyAtom<T, SEP>{
-    /// Create a new [`RepeatAnyAtom`] with specified separator.
+impl<T, SEP> RepeatAny<T, SEP>{
+    /// Create a new [`RepeatAny`] with specified separator.
     pub const fn new(atom : T, sep : SEP, max : Option<usize>) -> Self {
         Self{
             atom,
@@ -239,11 +276,11 @@ impl<T, SEP> RepeatAnyAtom<T, SEP>{
             max,
         }
     }
-    /// Create a new [`RepeatAnyAtom`] with specified separator and upper bound.
+    /// Create a new [`RepeatAny`] with specified separator and upper bound.
     pub const fn new_bounds(atom : T, sep : SEP, max : usize) -> Self {
         Self::new(atom, sep, Some(max))
     }
-    /// Create a new [`RepeatAnyAtom`] with specified separator without upper bound
+    /// Create a new [`RepeatAny`] with specified separator without upper bound
     pub const fn new_unbounded(atom : T, sep : SEP) -> Self {
         Self::new(atom, sep, None)
     }
@@ -253,7 +290,7 @@ impl<T, SEP> RepeatAnyAtom<T, SEP>{
     }
 }
 
-impl<T, SEP> RepeatAnyAtom<T, SEP> { 
+impl<T, SEP> RepeatAny<T, SEP> { 
     pub(crate) fn parse_logic<M : Clone + Chain<T> + Chain<SEP>, I : Insert<<M as Chain<T>>::Data>>(&self, st : M, vec : &mut I) -> M{
         let mut helper = st;
         match helper.clone().chain_append(&self.atom, vec) {
@@ -296,8 +333,8 @@ impl<T, SEP> RepeatAnyAtom<T, SEP> {
 /// Tool that matches repetitions lazily.
 ///
 /// It matches the least number of `T` atom (sepatared by `SEP`) which are followed by `TERM` atom.
-/// The difference with respect to a [`RepeatAtom`] followed by `TERM` is that here repetitions are
-/// evaluated lazily: it interrupts at the first match of `TERM`, whereas `RepeatAtom` evaluates
+/// The difference with respect to a [`Repeat`] followed by `TERM` is that here repetitions are
+/// evaluated lazily: it interrupts at the first match of `TERM`, whereas `Repeat` evaluates
 /// repetitions eagerly and so `TERM` is matched only after the repetition ends.
 ///
 /// ```rust
@@ -305,21 +342,21 @@ impl<T, SEP> RepeatAnyAtom<T, SEP> {
 /// let mh = MatchHelper::from("\"ABC\" \"defg\" \"hi");
 /// let (su, mh) = mh.match_atom_string(Seq{
 ///     first : '\"',
-///     second : LazyRepeatAtom::new_unbounded(AnyChar, TrueAtom, '\"', 0)
+///     second : LazyRepeat::new_unbounded(AnyChar, TrueAtom, '\"', 0)
 ///     }).unwrap();
 /// assert_eq!(su, "\"ABC\"");
 /// let (su, mh) = mh.match_atom_string(Seq{
 ///     first : " \"",
-///     second : LazyRepeatAtom::new_unbounded(AnyChar, TrueAtom, '\"', 0)
+///     second : LazyRepeat::new_unbounded(AnyChar, TrueAtom, '\"', 0)
 ///     }).unwrap();
 /// assert_eq!(su, " \"defg\"");
 /// assert!(mh.match_atom_string(Seq{
 ///     first : " \"",
-///     second : LazyRepeatAtom::new_unbounded(AnyChar, TrueAtom, '\"', 0)
+///     second : LazyRepeat::new_unbounded(AnyChar, TrueAtom, '\"', 0)
 ///     }).is_err());
 /// ```
 #[derive(Copy, Clone, Debug)]
-pub struct LazyRepeatAtom<T, SEP, TERM>{
+pub struct LazyRepeat<T, SEP, TERM>{
     atom : T,
     sep : SEP,
     term : TERM,
@@ -327,8 +364,8 @@ pub struct LazyRepeatAtom<T, SEP, TERM>{
     max : Option<usize>,
 }
 
-impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
-    /// Create a new `LazyRepeatAtom` with specified upper bound.
+impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM>{
+    /// Create a new `LazyRepeat` with specified upper bound.
     ///
     /// # Panics
     /// Panic if `max` is strictly lesser than `min`.
@@ -344,7 +381,7 @@ impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
             max : Some(max)
         }
     }
-    /// Create a new `LazyRepeatAtom` without upper bound.
+    /// Create a new `LazyRepeat` without upper bound.
     pub const fn new_unbounded(atom : T, sep : SEP, term : TERM, min : usize) -> Self {
         Self {
             atom,
@@ -361,7 +398,7 @@ impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM>{
 }
 
 use crate::view::{View, ParseTool};
-impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM> {
+impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM> {
     pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E> + Chain<TERM, Error = E>, I : Insert<<M as Chain<T>>::Data> >(&self, st : M, vec : &mut I) -> Result<M, E>{
         let mut helper = st;
         let mut start = self.min;
@@ -434,7 +471,7 @@ impl<T, SEP, TERM> LazyRepeatAtom<T, SEP, TERM> {
     }
 }
 
-/// Wrapper for [`RepeatAtom`], [`RepeatAnyAtom`] and [`LazyRepeatAtom`] that allows you to specify
+/// Wrapper for [`Repeat`], [`RepeatAny`] and [`LazyRepeat`] that allows you to specify
 /// the container in which store retrieved data.
 #[derive(Debug, Copy, Clone)]
 pub struct WithCont<W, I>(pub(crate) W, PhantomData<I>);

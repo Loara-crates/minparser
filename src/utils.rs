@@ -28,7 +28,7 @@ pub struct Newline;
 impl Atom for Newline {
     fn parse(&self, st : &str) -> Option<Match>{
         Seq{
-            first : RepeatAnyAtom::new_bounds('\r', TrueAtom, 1),
+            first : RepeatAny::new_bounds('\r', TrueAtom, 1),
             second :'\n'
         }.parse(st)
     }
@@ -40,7 +40,7 @@ pub struct WhiteSP;
 
 impl Atom for WhiteSP{
     fn parse(&self, st : &str) -> Option<Match> {
-        RepeatAnyAtom::new_unbounded(PredicateAtom::new(char::is_whitespace), TrueAtom).parse(st)
+        RepeatAny::new_unbounded(PredicateAtom::new(char::is_whitespace), TrueAtom).parse(st)
     }
 }
 

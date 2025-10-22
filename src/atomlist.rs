@@ -33,25 +33,21 @@ impl Atom for EOFChar{
     }
 }
 
-/// Only checks the provided atom, without progressing.
-///
-/// ```rust
-/// use minparser::prelude::*;
-///
-/// MatchHelper::from("a").match_atom(CheckTool('a')).unwrap()
-///     .match_atom(CheckTool::<fn(&char) -> bool>(char::is_ascii)).unwrap();
-/// ```
-#[derive(Debug, Copy, Clone, Default)]
-pub struct CheckTool<T>(pub T);
-
-impl<T> Atom for CheckTool<T> where T : Atom {
+impl<T> Atom for Check<T> where T : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         self.0.parse(st).map(|_| Match{len : 0})
     }
 }
-impl<T> AlwaysAtom for CheckTool<T> where T : AlwaysAtom {
+impl<T> AlwaysAtom for Check<T> where T : AlwaysAtom {
     fn parse_always(&self, _ : &str) -> Match {
         Match{len : 0}
+    }
+}
+
+impl<T> Atom for CheckInv<T> where T : Atom {
+    fn parse(&self, st : &str) -> Option<Match>{
+        let _ = self.check(MatchHelper::from(st)).ok()?;
+        Some(Match{len : 0})
     }
 }
 
@@ -86,27 +82,6 @@ impl<F, S> AlwaysAtom for Or<F, S> where F : AlwaysAtom, S : Atom {
     }
 }
 
-
-/// Matches only if the provided atom doesn't match.
-///
-/// ```rust
-/// use minparser::prelude::*;
-///
-/// MatchHelper::from("ab").match_atom(CheckInvTool('c')).unwrap()
-///     .match_atom(CheckInvTool('b')).unwrap();
-/// ```
-#[derive(Debug, Copy, Clone, Default)]
-pub struct CheckInvTool<T>(pub T);
-
-impl<T> Atom for CheckInvTool<T> where T : Atom {
-    fn parse(&self, st : &str) -> Option<Match>{
-        match self.0.parse(st) {
-            Some(_) => None,
-            None => Some(Match{len : 0}),
-        }
-    }
-}
-
 /// Matches any single character.
 ///
 /// It is exactly the opposite of [`EOFChar`].
@@ -121,8 +96,8 @@ impl Atom for AnyChar {
 
 /// Discards empty strings from a match.
 ///
-/// Some atoms that needs to match an undefined number of other atoms (like [`RepeatAtom`] or
-/// [`LazyRepeatAtom`]) may enter in an infinite loop if the inner atom matches an empty string `""`. 
+/// Some atoms that needs to match an undefined number of other atoms (like [`Repeat`] or
+/// [`LazyRepeat`]) may enter in an infinite loop if the inner atom matches an empty string `""`. 
 /// In that case indeed there always be a match but the atom does not progress, resulting so in an
 /// endless cycle.
 ///
@@ -167,15 +142,15 @@ impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
 
 
 /// Repeat atom with the specified limits without a separator
-pub fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> RepeatAtom<T, TrueAtom> {
-    RepeatAtom::new_bounds(atom, TrueAtom, min, max)
+pub fn repeat_bounds<T>(atom : T, min : usize, max : usize) -> Repeat<T, TrueAtom> {
+    Repeat::new_bounds(atom, TrueAtom, min, max)
 }
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_unbounded<T>(atom : T, min : usize) -> RepeatAtom<T, TrueAtom> {
-    RepeatAtom::new_unbounded(atom, TrueAtom, min)
+pub const fn repeat_unbounded<T>(atom : T, min : usize) -> Repeat<T, TrueAtom> {
+    Repeat::new_unbounded(atom, TrueAtom, min)
 }
 
-impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
+impl<T, SEP> Atom for Repeat<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
         let mut c = Count::new();
@@ -187,16 +162,16 @@ impl<T, SEP> Atom for RepeatAtom<T, SEP> where T : Atom, SEP : Atom {
 }
 
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_any_bounds<T>(atom : T, max : usize) -> RepeatAnyAtom<T, TrueAtom> {
-    RepeatAnyAtom::new_bounds(atom, TrueAtom, max)
+pub const fn repeat_any_bounds<T>(atom : T, max : usize) -> RepeatAny<T, TrueAtom> {
+    RepeatAny::new_bounds(atom, TrueAtom, max)
 }
 /// Repeat atom with the specified limits without a separator
-pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAnyAtom<T, TrueAtom> {
-    RepeatAnyAtom::new_unbounded(atom, TrueAtom)
+pub const fn repeat_any_unbounded<T>(atom : T) -> RepeatAny<T, TrueAtom> {
+    RepeatAny::new_unbounded(atom, TrueAtom)
 }
 
 
-impl<T, SEP> AlwaysAtom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
+impl<T, SEP> AlwaysAtom for RepeatAny<T, SEP> where T : Atom, SEP : Atom {
     fn parse_always(&self, st : &str) -> Match {
         let h = MatchHelper::from(st);
         let mut c = Count::new();
@@ -205,14 +180,14 @@ impl<T, SEP> AlwaysAtom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
 }
 
 
-impl<T, SEP> Atom for RepeatAnyAtom<T, SEP> where T : Atom, SEP : Atom {
+impl<T, SEP> Atom for RepeatAny<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         Some(self.parse_always(st))
     }
 }
 
 
-impl<T, SEP, TERM> Atom for LazyRepeatAtom<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
+impl<T, SEP, TERM> Atom for LazyRepeat<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
         let mut c = Count::new();
@@ -250,12 +225,12 @@ impl<P : Fn(char) -> bool> PredicateAtom<P> {
     }
     /// Creates an atom that matches zero or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_zero_or_more(predicate : P) -> RepeatAnyAtom<Self, TrueAtom> {
+    pub const fn new_zero_or_more(predicate : P) -> RepeatAny<Self, TrueAtom> {
         repeat_any_unbounded(Self::new(predicate))
     }
     /// Creates an atom that matches one or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_one_or_more(predicate : P) -> RepeatAtom<Self, TrueAtom> {
+    pub const fn new_one_or_more(predicate : P) -> Repeat<Self, TrueAtom> {
         repeat_unbounded(Self::new(predicate), 1)
     }
     /// Tests if the first character satisfy the predicate, and in the affirmative case the matched
@@ -305,12 +280,12 @@ impl<P : Fn(&char) -> bool> PredicateRefAtom<P> {
     }
     /// Creates an atom that matches zero or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_zero_or_more(predicate : P) -> RepeatAnyAtom<Self, TrueAtom> {
+    pub const fn new_zero_or_more(predicate : P) -> RepeatAny<Self, TrueAtom> {
         repeat_any_unbounded(Self::new(predicate))
     }
     /// Creates an atom that matches one or more occurrences of characters that satisfy the
     /// specified predicate.
-    pub const fn new_one_or_more(predicate : P) -> RepeatAtom<Self, TrueAtom> {
+    pub const fn new_one_or_more(predicate : P) -> Repeat<Self, TrueAtom> {
         repeat_unbounded(Self::new(predicate), 1)
     }
     /// Tests if the first character satisfy the predicate, and in the affirmative case the matched
