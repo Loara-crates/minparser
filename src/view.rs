@@ -21,6 +21,7 @@ use crate::pos::{Position, NoFile};
 use crate::atoms::{Atom, Match, AlwaysAtom};
 use core::marker::PhantomData;
 use crate::atomlist::{AnyChar, PredicateAtom, PredicateRefAtom};
+#[allow(clippy::wildcard_imports)]
 use crate::chains::*;
 
 /// A view on a `str` to be parsed.
@@ -135,6 +136,7 @@ impl<'a, F> View<'a, F> {
     /// If a match doesn't happen then the calling view is returned as `Err` unchanged. You can
     /// then use the [`into_pos`](crate::view::View::into_pos) method to get the actual position of
     /// the missing match.
+    #[must_use]
     pub fn match_always<R : AlwaysAtom>(self, t : R) -> Self {
         let Match{len} = t.parse_always(self.view);
         self.progress(len).1
@@ -161,11 +163,10 @@ impl<'a, F> View<'a, F> {
     }
     /// Matches a tool only if another tool matches.
     #[allow(clippy::missing_errors_doc)]
-    pub fn match_if_matches<PRE : ParseTool<'a, F>, R : ParseTool<'a, F>>(self, pre : PRE, t : R) -> Result<Self, R::Error> where F : Clone {
-        match self.clone().match_tool(&pre) {
-            Ok(next) => next.match_tool(&t),
-            Err(_) => Ok(self),
-        }
+    pub fn match_if_matches<PRE : ParseTool<'a, F>, R : ParseTool<'a, F>>(self, pre : &PRE, t : &R) -> Result<Self, R::Error> where F : Clone {
+        self.clone().match_tool(&pre).map_or(
+            Ok(self),
+            |next| next.match_tool(&t))
     }
 }
 
@@ -189,11 +190,21 @@ pub trait ParseTool<'a, F> {
     fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>;
 }
 
+impl<'a, F, T> ParseTool<'a, F> for &T where T : ParseTool<'a, F> + ?Sized{
+    type Error = T::Error;
+    type Data = T::Data;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error>{
+        T::parse(*self, st)
+    }
+}
+
 /// A tool that always matches.
 pub struct TrueTool<E>(PhantomData<E>);
 
 impl<E> TrueTool<E> {
     /// Create a new `TrueTool`.
+    #[must_use]
     pub const fn new() -> Self {
         Self(PhantomData)
     }
@@ -206,7 +217,7 @@ impl<E> core::fmt::Debug for TrueTool<E> {
 }
 impl<E> Clone for TrueTool<E> {
     fn clone(&self) -> Self {
-        Self(PhantomData)
+        *self
     }
 }
 impl<E> Copy for TrueTool<E> {}
@@ -340,18 +351,6 @@ impl<'a, F, T, SEP, E> ParseTool<'a, F> for Repeat<T, SEP> where T : ParseTool<'
         }
     }
 }
-impl<'a, F, T, SEP, E, I> ParseTool<'a, F> for WithCont<Repeat<T, SEP>, I> where T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, E : 'a, F : Clone, I : Default + Insert<T::Data> {
-    type Error = E;
-    type Data = I;
-
-    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
-        let mut c = I::default();
-        match self.0.parse_logic::<E, _, I>(st, &mut c) {
-            Ok(hh) => Ok((c, hh)),
-            Err(e) => Err(e),
-        }
-    }
-}
 
 impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAny<T, SEP> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone {
     type Error = core::convert::Infallible;
@@ -361,16 +360,6 @@ impl<'a, F, T, SEP> ParseTool<'a, F> for RepeatAny<T, SEP> where T : ParseTool<'
         let mut c = Count::new();
         let r = self.parse_logic(st, &mut c);
         Ok((c.0, r))
-    }
-}
-impl<'a, F, T, SEP, I> ParseTool<'a, F> for WithCont<RepeatAny<T, SEP>, I> where T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, F : Clone, I : Default + Insert<T::Data> {
-    type Error = core::convert::Infallible;
-    type Data = I;
-
-    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
-        let mut c = I::default();
-        let r = self.0.parse_logic(st, &mut c);
-        Ok((c, r))
     }
 }
 
@@ -391,20 +380,18 @@ impl<'a, F, T, SEP, TERM, E> ParseTool<'a, F> for LazyRepeat<T, SEP, TERM> where
         }
     }
 }
-impl<'a, F, T, SEP, TERM, E, I> ParseTool<'a, F> for WithCont<LazyRepeat<T, SEP, TERM>, I> where 
-    T : ParseTool<'a, F, Error = E>, 
-    SEP : ParseTool<'a, F, Error = E>, 
-    TERM : ParseTool<'a, F, Error = E>,
-    E : 'a,
-    F : Clone,
-    I : Default + Insert<T::Data> {
-    type Error = E;
-    type Data = I;
+impl<'a, F, T, SEP, TERM> ParseTool<'a, F> for LazyRepeatAny<T, SEP, TERM> where 
+    T : ParseTool<'a, F>, 
+    SEP : ParseTool<'a, F>, 
+    TERM : ParseTool<'a, F>,
+    F : Clone {
+    type Error = TERM::Error;
+    type Data = usize;
 
     fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
-        let mut c = I::default();
-        match self.0.parse_logic::<E, _, I>(st, &mut c) {
-            Ok(hh) => Ok((c, hh)),
+        let mut c = Count::new();
+        match self.parse_logic(st, &mut c) {
+            Ok(hh) => Ok((c.0, hh)),
             Err(e) => Err(e),
         }
     }
@@ -413,7 +400,7 @@ impl<'a, F, T, SEP, TERM, E, I> ParseTool<'a, F> for WithCont<LazyRepeat<T, SEP,
 /// A wrapper for [`Atom`] that implements [`ParseTool`].
 pub struct AtomTool<A>(pub A);
 
-impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom, F : 'a {
+impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom {
     type Error = View<'a, F>;
     type Data = &'a str;
 
@@ -424,11 +411,45 @@ impl<'a, F, A> ParseTool<'a, F> for AtomTool<A> where A : Atom, F : 'a {
 /// A wrapper for [`AlwaysAtom`] that implements [`ParseTool`].
 pub struct AlwAtomTool<A>(pub A);
 
-impl<'a, F, A> ParseTool<'a, F> for AlwAtomTool<A> where A : AlwaysAtom, F : 'a {
+impl<'a, F, A> ParseTool<'a, F> for AlwAtomTool<A> where A : AlwaysAtom {
     type Error = core::convert::Infallible;
     type Data = &'a str;
 
     fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
         Ok(st.match_always_string(&self.0))
     }
+}
+
+/// A wrapper for [`Atom`] that implements [`ParseTool`] but returns the length of the match
+/// instead of the matched string.
+pub struct AtomPfx<A>(pub A);
+impl<'a, F, A> ParseTool<'a, F> for AtomPfx<A> where A : Atom {
+    type Error = View<'a, F>;
+    type Data = usize;
+
+    fn parse(&self, st : View<'a, F>) -> Result<(Self::Data, View<'a, F>), Self::Error> {
+        match self.0.parse(st.get_view()) {
+            Some(m) => Ok((m.len, st.progress(m.len).1)),
+            None => Err(st)
+        }
+    }
+}
+
+
+/// Apply a [`LazyRepeat`](crate::chains::LazyRepeat) to a `View` and returns the matching string
+/// without the terminator
+/// 
+/// # Errors
+/// Since a failed match only happens when `TERM` does not match its error will be returned.
+pub fn lazy_match_string<'a, F, T, SEP, TERM>(view : View<'a, F>, atom : T, sep : SEP, term : TERM) -> Result<(&'a str, View<'a, F>), <TERM as ParseTool<'a, F>>::Error>
+where T : Atom,
+      SEP : Atom,
+      TERM : ParseTool<'a, F>,
+      F : Clone
+{
+    let lzy = LazyRepeatAny::new_unbounded(AtomPfx(atom), AtomPfx(sep), term);
+    let mut pfx_str = PfxLen(0);
+    let st = view.get_view();
+    let su = lzy.parse_logic(view, &mut pfx_str)?;
+    Ok((&st[0..pfx_str.0], su))
 }

@@ -19,6 +19,7 @@
 //! Other useful parsing tools.
 use crate::atoms::{Atom, Match};
 use crate::atomlist::{TrueAtom, PredicateAtom};
+#[allow(clippy::wildcard_imports)]
 use crate::chains::*;
 
 /// Tool that matches the newline characters sequences `\n` and `\r\n`.

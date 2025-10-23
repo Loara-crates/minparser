@@ -1,5 +1,6 @@
 //! Some usefult parsing atoms;
 use crate::atoms::{Atom, AlwaysAtom, MatchHelper, Match};
+#[allow(clippy::wildcard_imports)]
 use crate::chains::*;
 
 macro_rules! always_parse {
@@ -128,15 +129,15 @@ impl AlwaysAtom for TrueAtom{
 }
 always_parse!(TrueAtom);
 
-impl<'a, T> Chain<T> for MatchHelper<'a> where T : Atom {
+impl<T> Chain<T> for MatchHelper<'_> where T : Atom {
     type Error = (); // We do not want to send Self as error
     type Data = (); // We do not want to send Data
     
     fn chain(self, t : &T) -> Result<(Self::Data, Self), Self::Error> {
-        match self.match_atom(t) {
-            Ok(s) => Ok(((), s)),
-            Err(_) => Err(()),
-        }
+        self.match_atom(t).map_or(
+            Err(()),
+            |s| Ok(((), s))
+        )
     }
 }
 
@@ -154,10 +155,9 @@ impl<T, SEP> Atom for Repeat<T, SEP> where T : Atom, SEP : Atom {
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
         let mut c = Count::new();
-        match self.parse_logic::<(), _, _>(h, &mut c) {
-            Ok(hh) => Some(hh.finalize().1),
-            Err(_) => None,
-        }
+        self.parse_logic::<(), _, _>(h, &mut c).map_or(
+            None,
+            |hh| Some(hh.finalize().1))
     }
 }
 
@@ -191,10 +191,18 @@ impl<T, SEP, TERM> Atom for LazyRepeat<T, SEP, TERM> where T : Atom, SEP : Atom,
     fn parse(&self, st : &str) -> Option<Match> {
         let h = MatchHelper::from(st);
         let mut c = Count::new();
-        match self.parse_logic::<(), _, _>(h, &mut c) {
-            Ok(hh) => Some(hh.finalize().1),
-            Err(_) => None,
-        }
+        self.parse_logic::<(), _, _>(h, &mut c).map_or(
+            None,
+            |hh| Some(hh.finalize().1))
+    }
+}
+impl<T, SEP, TERM> Atom for LazyRepeatAny<T, SEP, TERM> where T : Atom, SEP : Atom, TERM : Atom {
+    fn parse(&self, st : &str) -> Option<Match> {
+        let h = MatchHelper::from(st);
+        let mut c = Count::new();
+        self.parse_logic(h, &mut c).map_or(
+            None,
+            |hh| Some(hh.finalize().1))
     }
 }
 

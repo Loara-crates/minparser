@@ -30,10 +30,10 @@ pub struct Match{
 }
 
 impl Match {
-    fn new_zero() -> Self {
+    const fn new_zero() -> Self {
         Self {len : 0}
     }
-    fn append(self, m : Self) -> Self {
+    const fn append(self, m : Self) -> Self {
         Self{ len : self.len + m.len}
     }
 }
@@ -111,7 +111,7 @@ impl<'a> MatchHelper<'a> {
     ///
     /// # Panics
     /// Panics if `inc` doesn;t lie on UTF-8 code point boundaries.
-    fn progress(self, inc : Match) -> (&'a str, Self) { 
+    const fn progress(self, inc : Match) -> (&'a str, Self) { 
         let (pfx, sfx) = self.st.split_at(inc.len);
         (pfx, Self{st : sfx, prefix : self.prefix.append(inc)})
     }
@@ -134,6 +134,7 @@ impl<'a> MatchHelper<'a> {
             .ok_or(self)
     }
     /// Matches an [`AlwaysAtom`] with the view.
+    #[must_use]
     pub fn match_always<R : AlwaysAtom>(self, t : R) -> Self {
         self.progress(t.parse_always(self.st)).1
     }
@@ -142,12 +143,13 @@ impl<'a> MatchHelper<'a> {
         self.progress(t.parse_always(self.st))
     }
     /// Finalize the helper, returning the matched prefix length and the remaining unparsed string.
-    pub fn finalize(self) -> (&'a str, Match) {
+    #[must_use]
+    pub const fn finalize(self) -> (&'a str, Match) {
         (self.st, self.prefix)
     }
     /// Enforce that all the string has been parsed before finalizing.
     #[allow(clippy::missing_errors_doc)]
-    pub fn all_finalize(self) -> Result<Match, Self> {
+    pub const fn all_finalize(self) -> Result<Match, Self> {
         if self.st.is_empty() {
             Ok(self.prefix)
         }
@@ -158,7 +160,7 @@ impl<'a> MatchHelper<'a> {
     /// Enforce that the atom matches the entire string before finalizing.
     #[allow(clippy::missing_errors_doc)]
     pub fn match_finalize<R : Atom>(self, t : R) -> Result<Match, Self> {
-        self.match_atom(t).and_then(|i| i.all_finalize())
+        self.match_atom(t).and_then(MatchHelper::all_finalize)
     }
     /// Matches an atom only if another atom matches.
     #[allow(clippy::missing_errors_doc)]
@@ -171,6 +173,7 @@ impl<'a> MatchHelper<'a> {
     /// Matches an [`AlwaysAtom`] only if another atom matches.
     ///
     /// This always result in a successful match.
+    #[must_use]
     #[allow(clippy::missing_errors_doc)]
     pub fn always_if_matches<PRE : Atom, R : AlwaysAtom>(self, pre : PRE, t : R) -> Self {
         match self.match_atom(pre) {
@@ -196,12 +199,12 @@ impl<T> AlwaysAtom for alloc::boxed::Box<T> where T : AlwaysAtom + ?Sized {
     }
 }
 
-impl<'a, T> Atom for &'a T where T : Atom + ?Sized {
+impl<T> Atom for &T where T : Atom + ?Sized {
     fn parse(&self, st : &str) -> Option<Match>{
         (*self).parse(st)
     }
 }
-impl<'a, T> AlwaysAtom for &'a T where T : AlwaysAtom + ?Sized {
+impl<T> AlwaysAtom for &T where T : AlwaysAtom + ?Sized {
     fn parse_always(&self, st : &str) -> Match{
         (*self).parse_always(st)
     }

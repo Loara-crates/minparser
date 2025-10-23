@@ -1,6 +1,8 @@
 //! Items that can be used both as [`Atom`](crate::atoms::Atom) and as
 //! [`ParseTool`](crate::view::ParseTool).
-use core::marker::PhantomData;
+
+#[cfg(feature = "alloc")]
+use crate::view::{ParseTool, View};
 
 // Associate trait that abstract both View and MatchHelper
 pub(crate) trait Chain<T> : Sized{
@@ -11,56 +13,67 @@ pub(crate) trait Chain<T> : Sized{
     fn chain_nodata(self, t : &T) -> Result<Self, Self::Error>{
         self.chain(t).map(|i| i.1)
     }
-    fn chain_append<I : Insert<Self::Data>>(self, t : &T, vec : &mut I) -> Result<Self, Self::Error> {
-        self.chain(t).map(|(d, m)| {
-            vec.insert(d);
-            m
-        })
-    }
 }
 
-/// Trait that generalize a container with an `insert` method.
-///
-/// This trait is already implemented for [`Vec`](alloc::vec::Vec) and
-/// [`String`](alloc::string::String) when the `alloc` feature is used.
-pub trait Insert<D> {
-    /// Inserts a new element.
-    fn insert(&mut self, data : D);
+// Inserter for both T and SEP
+pub(crate) trait InsertB<TD, SEPD> {
+    fn insert(&mut self, data : TD);
+    fn insert_sep(&mut self, data : SEPD);
 }
 
-/// Implementor of [`Insert`] that only counts the elements without storing them.
-#[derive(Debug, Copy, Clone)]
-pub struct Count(pub usize);
+#[derive(Debug, Copy, Clone, Default)]
+pub(crate) struct Count(pub(crate) usize);
 
-impl Count {
-    /// Creates an empty `Count`.
-    pub fn new() -> Self {
-        Self(0)
-    }
-}
-
-impl Default for Count {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
-impl<D> Insert<D> for Count{
-    fn insert(&mut self, _data : D){
+impl<TD, SEPD> InsertB<TD, SEPD> for Count{
+    fn insert(&mut self, _ : TD){
         self.0 += 1;
     }
+    fn insert_sep(&mut self, _ : SEPD){}
+}
+impl Count {
+    pub(crate) const fn new() -> Self {
+        Self(0)
+    }
 }
 
 #[cfg(feature = "alloc")]
-impl<D> Insert<D> for alloc::vec::Vec<D>{
-    fn insert(&mut self, data : D){
+impl<TD, SEPD> InsertB<TD, SEPD> for alloc::vec::Vec<TD>{
+    fn insert(&mut self, data : TD){
         self.push(data);
     }
+    fn insert_sep(&mut self, _ : SEPD){}
 }
-#[cfg(feature = "alloc")]
-impl Insert<char> for alloc::string::String{
-    fn insert(&mut self, data : char){
-        self.push(data);
+
+pub(crate) fn ihelp<T, SEP, M, I>(atom : &T, sep : &SEP, st : M, vec : &mut I) -> Option<M>
+    where M : Chain<T> + Chain<SEP>,
+          I : InsertB<<M as Chain<T>>::Data, <M as Chain<SEP>>::Data>,
+    {
+        let (si, h) = st.chain(sep).ok()?;
+        let (i, ret) = h.chain(atom).ok()?;
+        vec.insert_sep(si);
+        vec.insert(i);
+        Some(ret)
+    }
+pub(crate) fn ihelpe<T, SEP, M, I, E>(atom : &T, sep : &SEP, st : M, vec : &mut I) -> Result<M, E>
+    where M : Chain<T, Error = E> + Chain<SEP, Error = E>,
+          I : InsertB<<M as Chain<T>>::Data, <M as Chain<SEP>>::Data>
+    {
+        let (si, h) = st.chain(sep)?;
+        let (i, ret) = h.chain(atom)?;
+        vec.insert_sep(si);
+        vec.insert(i);
+        Ok(ret)
+    }
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct PfxLen(pub(crate) usize);
+
+impl InsertB<usize, usize> for PfxLen{
+    fn insert(&mut self, data : usize){
+        self.0 += data;
+    }
+    fn insert_sep(&mut self, data : usize){
+        self.0 += data;
     }
 }
 
@@ -74,9 +87,10 @@ pub struct Seq<F, S>{
 
 impl<F, S> Seq<F, S> {
     /// Creates a new `Seq`.
-    pub fn new(first : F, second : S) -> Self {
+    pub const fn new(first : F, second : S) -> Self {
         Self{first, second}
     }
+    #[allow(clippy::type_complexity)]
     pub(crate) fn parse_logic<E, M : Chain<F, Error = E> + Chain<S, Error = E> >(&self, m : M) -> Result<((<M as Chain<F>>::Data, <M as Chain<S>>::Data), M), E> {
         match m.chain(&self.first) {
             Err(e) => Err(e),
@@ -98,14 +112,14 @@ pub struct Or<F, S>{
 
 impl<F, S> Or<F, S> {
     /// Creates a new `Or`.
-    pub fn new(first : F, second : S) -> Self {
+    pub const fn new(first : F, second : S) -> Self {
         Self{first, second}
     }
     pub(crate) fn parse_logic<D, M : Clone + Chain<F, Data = D> + Chain<S, Data = D> >(&self, m : M) -> Result<(D, M), <M as Chain<S>>::Error> {
-        match m.clone().chain(&self.first) {
-            Ok(s) => Ok(s),
-            Err(_) => m.chain(&self.second),
-        }
+        m.clone().chain(&self.first).map_or_else(
+            |_| m.chain(&self.second),
+            Ok
+        )
     }
 }
 
@@ -177,9 +191,7 @@ impl<T, SEP> Repeat<T, SEP>{
     /// It panic when `max` is strictly less than `min`, because in such case no matches are
     /// possible
     pub fn new_bounds(atom : T, sep : SEP, min : usize, max : usize) -> Self {
-        if min > max {
-            panic!("Maximum value {max} is strictly less than minimum {min}");
-        }
+        assert!(min <= max, "Maximum value {max} is strictly less than minimum {min}");
         Self {
             atom,
             sep,
@@ -196,51 +208,50 @@ impl<T, SEP> Repeat<T, SEP>{
             max : None
         }
     }
-    /// Wraps it in a [`WithCont`].
-    pub const fn wrap<I>(self) -> WithCont<Self, I> {
-        WithCont(self, PhantomData)
-    }
 }
 
 impl<T, SEP> Repeat<T, SEP> { 
     pub(crate) fn parse_logic<
             E, 
             M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E>,
-            I : Insert<<M as Chain<T>>::Data>
+            I : InsertB<<M as Chain<T>>::Data, <M as Chain<SEP>>::Data>
         >(&self, st : M, vec : &mut I) -> Result<M, E>{
         let mut helper = st;
         let mut start = self.min;
         if self.min > 0 {
-            helper = helper.chain_append(&self.atom, vec)?;
+            helper = {
+                let (i, h) = helper.chain(&self.atom)?;
+                vec.insert(i);
+                h
+            };
             for _ in 1..(self.min) {
-                helper = helper.chain_nodata(&self.sep)?.chain_append(&self.atom, vec)?;
+                helper = ihelpe(&self.atom, &self.sep, helper, vec)?;
             }
         }
         else {
-            match helper.clone().chain_append(&self.atom, vec) {
-                Ok(h) => {
+            match helper.clone().chain(&self.atom) {
+                Ok((ii, h)) => {
                     helper = h;
                     start += 1;
+                    vec.insert(ii);
                 }
                 Err(_) => return Ok(helper),
             }
         }
         if let Some(max) = self.max {
             for _i in start..max {
-                if let Ok(hh) = helper.clone().chain_nodata(&self.sep)
-                    && let Ok(h) = hh.chain_append(&self.atom, vec) {
+                if let Some(h) = ihelp(&self.atom, &self.sep, helper.clone(), vec) {
                     helper = h;
                 }
                 else {
                     return Ok(helper);
                 }
             }
-            return Ok(helper);
+            Ok(helper)
         }
         else {
             loop {
-                if let Ok(hh) = helper.clone().chain_nodata(&self.sep)
-                    && let Ok(h) = hh.chain_append(&self.atom, vec) {
+                if let Some(h) = ihelp(&self.atom, &self.sep, helper.clone(), vec) {
                     helper = h;
                 }
                 else {
@@ -248,11 +259,6 @@ impl<T, SEP> Repeat<T, SEP> {
                 }
             }
         }
-    }
-    /// Parse and store data in `vec`.
-    pub fn parse_store<'a, F, E, I >(&self, st : View<'a, F>, vec : &mut I) -> Result<View<'a, F>, E> 
-        where F : Clone, T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, I : Insert<T::Data> {
-            self.parse_logic(st, vec)
     }
 }
 
@@ -284,37 +290,32 @@ impl<T, SEP> RepeatAny<T, SEP>{
     pub const fn new_unbounded(atom : T, sep : SEP) -> Self {
         Self::new(atom, sep, None)
     }
-    /// Wraps it in a [`WithCont`].
-    pub const fn wrap<I>(self) -> WithCont<Self, I> {
-        WithCont(self, PhantomData)
-    }
 }
 
 impl<T, SEP> RepeatAny<T, SEP> { 
-    pub(crate) fn parse_logic<M : Clone + Chain<T> + Chain<SEP>, I : Insert<<M as Chain<T>>::Data>>(&self, st : M, vec : &mut I) -> M{
+    pub(crate) fn parse_logic<M : Clone + Chain<T> + Chain<SEP>, I : InsertB<<M as Chain<T>>::Data, <M as Chain<SEP>>::Data>>(&self, st : M, vec : &mut I) -> M {
         let mut helper = st;
-        match helper.clone().chain_append(&self.atom, vec) {
-            Ok(h) => {
+        match helper.clone().chain(&self.atom) {
+            Ok((ii, h)) => {
                 helper = h;
+                vec.insert(ii);
             }
             Err(_) => return helper,
         }
         if let Some(max) = self.max {
             for _i in 1..max {
-                if let Ok(hh) = helper.clone().chain_nodata(&self.sep)
-                    && let Ok(h) = hh.chain_append(&self.atom, vec) {
+                if let Some(h) = ihelp(&self.atom, &self.sep, helper.clone(), vec) {
                     helper = h;
                 }
                 else {
                     return helper;
                 }
             }
-            return helper;
+            helper
         }
         else {
             loop {
-                if let Ok(hh) = helper.clone().chain_nodata(&self.sep)
-                    && let Ok(h) = hh.chain_append(&self.atom, vec) {
+                if let Some(h) = ihelp(&self.atom, &self.sep, helper.clone(), vec) {
                     helper = h;
                 }
                 else {
@@ -322,11 +323,6 @@ impl<T, SEP> RepeatAny<T, SEP> {
                 }
             }
         }
-    }
-    /// Parse and store data in `vec`.
-    pub fn parse_store<'a, F, I >(&self, st : View<'a, F>, vec : &mut I) -> View<'a, F> 
-        where F : Clone, T : ParseTool<'a, F>, SEP : ParseTool<'a, F>, I : Insert<T::Data> {
-            self.parse_logic(st, vec)
     }
 }
 
@@ -370,9 +366,7 @@ impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM>{
     /// # Panics
     /// Panic if `max` is strictly lesser than `min`.
     pub fn new_bounds(atom : T, sep : SEP, term : TERM, min : usize, max : usize) -> Self {
-        if min > max {
-            panic!("Maximum value {max} is strictly less than minimum {min}");
-        }
+        assert!(min <= max, "Maximum value {max} is strictly less than minimum {min}");
         Self {
             atom,
             sep,
@@ -391,21 +385,23 @@ impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM>{
             max : None
         }
     }
-    /// Wraps it in a [`WithCont`].
-    pub const fn wrap<I>(self) -> WithCont<Self, I> {
-        WithCont(self, PhantomData)
-    }
 }
 
-use crate::view::{View, ParseTool};
 impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM> {
-    pub(crate) fn parse_logic<E, M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E> + Chain<TERM, Error = E>, I : Insert<<M as Chain<T>>::Data> >(&self, st : M, vec : &mut I) -> Result<M, E>{
+    pub(crate) fn parse_logic<E, M, I>(&self, st : M, vec : &mut I) -> Result<M, E>
+        where M : Clone + Chain<T, Error = E> + Chain<SEP, Error = E> + Chain<TERM, Error = E>,
+              I : InsertB<<M as Chain<T>>::Data, <M as Chain<SEP>>::Data>
+    {
         let mut helper = st;
         let mut start = self.min;
         if self.min > 0 {
-            helper = helper.chain_append(&self.atom, vec)?;
+            helper = {
+                let (i, ret) = helper.chain(&self.atom)?;
+                vec.insert(i);
+                ret
+            };
             for _ in 1..(self.min) {
-                helper = helper.chain_nodata(&self.sep)?.chain_append(&self.atom, vec)?;
+                helper = ihelpe(&self.atom, &self.sep, helper, vec)?;
             }
         }
         else{
@@ -414,9 +410,10 @@ impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM> {
                     return Ok(hh);
                 }
                 Err(e) => {
-                    if let Ok(h) = helper.chain_append(&self.atom, vec) {
+                    if let Ok((hi, h)) = helper.chain(&self.atom) {
                         helper = h;
                         start += 1;
+                        vec.insert(hi);
                     }
                     else{
                         return Err(e);
@@ -431,8 +428,7 @@ impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM> {
                         return Ok(hh);
                     }
                     Err(e) => {
-                        if let Ok(h1) = helper.chain_nodata(&self.sep)
-                        && let Ok(h) = h1.chain_append(&self.atom, vec) {
+                        if let Some(h) = ihelp(&self.atom, &self.sep, helper, vec) {
                             helper = h;
                         }
                         else{
@@ -445,39 +441,147 @@ impl<T, SEP, TERM> LazyRepeat<T, SEP, TERM> {
         }
         else {
             loop {
-                loop {
-                    match helper.clone().chain_nodata(&self.term) {
-                        Ok(hh) => {
-                            return Ok(hh);
+                match helper.clone().chain_nodata(&self.term) {
+                    Ok(hh) => {
+                        return Ok(hh);
+                    }
+                    Err(e) => {
+                        if let Some(h) = ihelp(&self.atom, &self.sep, helper, vec) {
+                            helper = h;
                         }
-                        Err(e) => {
-                            if let Ok(h1) = helper.chain_nodata(&self.sep)
-                            && let Ok(h) = h1.chain_append(&self.atom, vec) {
-                                helper = h;
-                            }
-                            else{
-                                return Err(e);
-                            }
+                        else{
+                            return Err(e);
                         }
                     }
                 }
             }
         }
     }
+    #[cfg(feature = "alloc")]
     /// Parse and store data in `vec`.
-    pub fn parse_store<'a, F, E, I >(&self, st : View<'a, F>, vec : &mut I) -> Result<View<'a, F>, E> 
-        where F : Clone, T : ParseTool<'a, F, Error = E>, SEP : ParseTool<'a, F, Error = E>, TERM : ParseTool<'a, F, Error = E>, I : Insert<T::Data> {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn parse_store<'a, F, E >(&self, st : View<'a, F>, vec : &mut alloc::vec::Vec<T::Data>) -> Result<View<'a, F>, E> 
+        where F : Clone,
+              T : ParseTool<'a, F, Error = E>, 
+              SEP : ParseTool<'a, F, Error = E>, 
+              TERM : ParseTool<'a, F, Error = E> {
             self.parse_logic(st, vec)
     }
 }
 
-/// Wrapper for [`Repeat`], [`RepeatAny`] and [`LazyRepeat`] that allows you to specify
-/// the container in which store retrieved data.
-#[derive(Debug, Copy, Clone)]
-pub struct WithCont<W, I>(pub(crate) W, PhantomData<I>);
+/// Like [`LazyRepeat`] but without a minimum number of repetitions
+///
+/// ```rust
+/// use minparser::prelude::*;
+/// let mh = MatchHelper::from("\"ABC\" \"defg\" \"hi");
+/// let (su, mh) = mh.match_atom_string(Seq{
+///     first : '\"',
+///     second : LazyRepeatAny::new_unbounded(AnyChar, TrueAtom, '\"')
+///     }).unwrap();
+/// assert_eq!(su, "\"ABC\"");
+/// let (su, mh) = mh.match_atom_string(Seq{
+///     first : " \"",
+///     second : LazyRepeatAny::new_unbounded(AnyChar, TrueAtom, '\"')
+///     }).unwrap();
+/// assert_eq!(su, " \"defg\"");
+/// assert!(mh.match_atom_string(Seq{
+///     first : " \"",
+///     second : LazyRepeatAny::new_unbounded(AnyChar, TrueAtom, '\"')
+///     }).is_err());
+/// ```
+#[derive(Copy, Clone, Debug)]
+pub struct LazyRepeatAny<T, SEP, TERM>{
+    atom : T,
+    sep : SEP,
+    term : TERM,
+    max : Option<usize>,
+}
 
-impl<W, I> AsRef<W> for WithCont<W, I> {
-    fn as_ref(&self) -> &W {
-        &self.0
+impl<T, SEP, TERM> LazyRepeatAny<T, SEP, TERM>{
+    /// Create a new `LazyRepeatAny` with specified upper bound.
+    pub const fn new_bounds(atom : T, sep : SEP, term : TERM, max : usize) -> Self {
+        Self {
+            atom,
+            sep,
+            term,
+            max : Some(max)
+        }
+    }
+    /// Create a new `LazyRepeatAny` without upper bound.
+    pub const fn new_unbounded(atom : T, sep : SEP, term : TERM) -> Self {
+        Self {
+            atom,
+            sep,
+            term,
+            max : None
+        }
+    }
+}
+
+impl<T, SEP, TERM> LazyRepeatAny<T, SEP, TERM> {
+    pub(crate) fn parse_logic<M, I>(&self, st : M, vec : &mut I) -> Result<M, <M as Chain<TERM>>::Error >
+        where M : Clone + Chain<T> + Chain<SEP> + Chain<TERM>,
+              I : InsertB<<M as Chain<T>>::Data, <M as Chain<SEP>>::Data>
+    {
+        let mut helper = st;
+        match helper.clone().chain_nodata(&self.term) {
+            Ok(hh) => {
+                return Ok(hh);
+            }
+            Err(e) => {
+                if let Ok((hi, h)) = helper.chain(&self.atom) {
+                    helper = h;
+                    vec.insert(hi);
+                }
+                else{
+                    return Err(e);
+                }
+            }
+        }
+        if let Some(max) = self.max {
+            for _i in 1..max {
+                match helper.clone().chain_nodata(&self.term) {
+                    Ok(hh) => {
+                        return Ok(hh);
+                    }
+                    Err(e) => {
+                        if let Some(h) = ihelp(&self.atom, &self.sep, helper, vec) {
+                            helper = h;
+                        }
+                        else{
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            helper.chain_nodata(&self.term)
+        }
+        else {
+            loop {
+                match helper.clone().chain_nodata(&self.term) {
+                    Ok(hh) => {
+                        return Ok(hh);
+                    }
+                    Err(e) => {
+                        if let Some(h) = ihelp(&self.atom, &self.sep, helper, vec) {
+                            helper = h;
+                        }
+                        else{
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(feature = "alloc")]
+    /// Parse and store data in `vec`.
+    #[allow(clippy::missing_errors_doc)]
+    pub fn parse_store<'a, F, E >(&self, st : View<'a, F>, vec : &mut alloc::vec::Vec<T::Data>) -> Result<View<'a, F>, E> 
+        where F : Clone, 
+            T : ParseTool<'a, F, Error = E>, 
+            SEP : ParseTool<'a, F, Error = E>, 
+            TERM : ParseTool<'a, F, Error = E> {
+            self.parse_logic(st, vec)
     }
 }
